@@ -1,6 +1,8 @@
 package builder
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"strings"
@@ -21,6 +23,23 @@ type EntradaNFe struct {
 	FinNFe  string    // "1"=normal
 	IndFinal string   // "1"=consumidor final
 	IndPres  string   // "1"=presencial
+
+	// Modo de emissão — padrão "1" (normal). Use "5" para FS-DA (contingência offline).
+	TpEmis string // "1"=normal "5"=FS-DA
+	DhCont string // data/hora entrada em contingência ISO8601 (obrigatório quando TpEmis="5")
+	XJust  string // justificativa contingência ≥15 chars (obrigatório quando TpEmis="5")
+
+	// Modelo do documento: "55"=NF-e (padrão), "65"=NFC-e
+	Mod string
+
+	// NFC-e — obrigatório quando Mod="65" (fornecido pela SEFAZ estadual)
+	CSC             string // Código de Segurança do Contribuinte
+	CSCId           string // identificador do CSC com zeros à esquerda (ex: "000001")
+	UrlConsultaNFCe string // URL base da SEFAZ estadual (ex: "https://www.sefaz.go.gov.br/...")
+
+
+	// Referência à NF-e original — obrigatório quando FinNFe="2" (complementar) ou "4" (devolução)
+	ChaveNFeRef string // chave de acesso 44 dígitos da NF-e referenciada
 
 	Emitente  EntradaEmitente
 	Dest      EntradaDest
@@ -85,10 +104,14 @@ type EntradaICMS struct {
 	Aliq   float64 // alíquota %
 	// Simples Nacional
 	CSOSN  string  // "102", "400", "500", etc.
-	// ST
+	// ST prospectivo (CST 10)
 	ModBCST string
 	PMVAST  float64
 	AliqST  float64
+	// ST retido anteriormente (CST 60)
+	VBCSTRet   float64
+	PSTRet     float64
+	VICMSSTRet float64
 	// Desoneração
 	VICMSDeson float64
 	MotDesICMS string
@@ -119,8 +142,12 @@ func Build(e EntradaNFe) ([]byte, ChaveAcesso, error) {
 		return nil, ChaveAcesso{}, fmt.Errorf("builder: %w", err)
 	}
 
+	mod := e.Mod
+	if mod == "" {
+		mod = ModeloNFe
+	}
 	chave := NovaChave(e.Emitente.End.UF, FormatarCNPJ(e.Emitente.CNPJ),
-		e.Serie, e.NNF, "1", e.DhEmi)
+		e.Serie, e.NNF, "1", mod, e.DhEmi)
 
 	nfe, err := montarNFe(e, chave)
 	if err != nil {
@@ -145,11 +172,26 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 		return NFe{}, err
 	}
 
-	dest := montarDest(e.Dest)
+	// modelo e tipo de impressão
+	mod := e.Mod
+	if mod == "" {
+		mod = ModeloNFe
+	}
+	tpImp := "1"
+	if mod == ModeloNFCe {
+		tpImp = "4"
+	}
 
-	// idDest: 1=interna, 2=interestadual
+	// dest como ponteiro — NFC-e permite consumidor não identificado (dest nil)
+	var dest *Destinatario
+	if e.Dest.CNPJ != "" || e.Dest.CPF != "" || e.Dest.Nome != "" {
+		d := montarDest(e.Dest)
+		dest = &d
+	}
+
+	// idDest: 1=interna, 2=interestadual (só compara UFs quando há dest)
 	idDest := "1"
-	if e.Emitente.End.UF != e.Dest.End.UF {
+	if e.Dest.End.UF != "" && e.Emitente.End.UF != e.Dest.End.UF {
 		idDest = "2"
 	}
 
@@ -162,6 +204,16 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 		finNFe = "1"
 	}
 
+	tpEmis := e.TpEmis
+	if tpEmis == "" {
+		tpEmis = "1"
+	}
+
+	var nfref []NFref
+	if e.ChaveNFeRef != "" {
+		nfref = []NFref{{RefNFe: e.ChaveNFeRef}}
+	}
+
 	nfe := NFe{
 		Xmlns: NsNFe,
 		InfNFe: InfNFe{
@@ -171,15 +223,15 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 				CUF:      chave.CUF,
 				CNF:      chave.CNF,
 				NatOp:    e.NatOp,
-				Mod:      ModeloNFe,
+				Mod:      mod,
 				Serie:    chave.Serie,
 				NNF:      strings.TrimLeft(chave.NNF, "0"),
 				DhEmi:    e.DhEmi.Format("2006-01-02T15:04:05-07:00"),
 				TpNF:     "1",
 				IdDest:   idDest,
 				CMunFG:   e.Emitente.End.CodigoMun,
-				TpImp:    "1",
-				TpEmis:   "1",
+				TpImp:    tpImp,
+				TpEmis:   tpEmis,
 				CDV:      chave.CDV,
 				TpAmb:    tpAmb,
 				FinNFe:   finNFe,
@@ -187,6 +239,9 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 				IndPres:  e.IndPres,
 				ProcEmi:  "0",
 				VerProc:  "nfe-go v0.1",
+				DhCont:   e.DhCont,
+				XJust:    e.XJust,
+				NFref:    nfref,
 			},
 			Emit: montarEmitente(e.Emitente),
 			Dest: dest,
@@ -205,7 +260,46 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 		},
 	}
 
+	if mod == ModeloNFCe {
+		nfe.InfNFeSupl = montarQRCode(e, chave, totais, tpAmb)
+	}
+
 	return nfe, nil
+}
+
+// montarQRCode gera o bloco infNFeSupl com QR Code e URL de consulta para NFC-e.
+// signAC = SHA-1(chNFe + nVersao + tpAmb + cDest + dhEmi + vNF + vICMS + dIEDest + cIdToken + CSC).
+func montarQRCode(e EntradaNFe, chave ChaveAcesso, totais ICMSTot, tpAmb string) *InfNFeSupl {
+	chNFe := chave.String()
+	nVersao := "100"
+	cDest := e.Dest.CPF // CPF do consumidor ou vazio
+
+	dhEmi := e.DhEmi.Format("20060102150405")
+	vNF := totais.VNF
+	vICMS := totais.VICMS
+
+	dIEDest := ""
+	switch e.Dest.IndIEDest {
+	case "1":
+		dIEDest = e.Dest.IE
+	case "2":
+		dIEDest = "ISENTO"
+	}
+
+	cIdToken := e.CSCId
+
+	// signAC: SHA-1 de todos os campos + CSC, resultado em hex maiúsculo (40 chars)
+	toSign := chNFe + nVersao + tpAmb + cDest + dhEmi + vNF + vICMS + dIEDest + cIdToken + e.CSC
+	h := sha1.New()
+	h.Write([]byte(toSign))
+	signAC := strings.ToUpper(hex.EncodeToString(h.Sum(nil)))
+
+	// QR Code: formato pipe-delimited p= (padrão NT 2013.005 NFC-e)
+	partes := strings.Join([]string{chNFe, nVersao, tpAmb, cDest, dhEmi, vNF, vICMS, dIEDest, cIdToken, signAC}, "|")
+	qrCode := e.UrlConsultaNFCe + "?p=" + partes
+	urlChave := e.UrlConsultaNFCe + "?chNFe=" + chNFe
+
+	return &InfNFeSupl{QrCode: qrCode, UrlChave: urlChave}
 }
 
 func montarEmitente(e EntradaEmitente) Emitente {
@@ -356,8 +450,34 @@ func montarImposto(item EntradaItem, crt string) Imposto {
 			Orig: "0", CST: "00", ModBC: "3",
 			VBC: fmtVal(vBC), PICMS: fmtVal(item.ICMS.Aliq), VICMS: fmtVal(vICMS),
 		}
+	case "10":
+		vBC := vProd
+		vICMS := vBC * item.ICMS.Aliq / 100
+		modBCST := item.ICMS.ModBCST
+		if modBCST == "" {
+			modBCST = "4" // padrão: MVA ajustado
+		}
+		vBCST := vProd * (1 + item.ICMS.PMVAST/100)
+		vICMSST := vBCST*item.ICMS.AliqST/100 - vICMS
+		if vICMSST < 0 {
+			vICMSST = 0
+		}
+		icms.ICMS10 = &ICMS10{
+			Orig: "0", CST: "10", ModBC: "3",
+			VBC: fmtVal(vBC), PICMS: fmtVal(item.ICMS.Aliq), VICMS: fmtVal(vICMS),
+			ModBCST: modBCST, PMVAST: fmtVal(item.ICMS.PMVAST),
+			VBCST: fmtVal(vBCST), PICMSST: fmtVal(item.ICMS.AliqST), VICMSST: fmtVal(vICMSST),
+		}
 	case "40", "41", "50":
 		icms.ICMS40 = &ICMS40{Orig: "0", CST: cst}
+	case "60":
+		icms.ICMS60 = &ICMS60{
+			Orig:       "0",
+			CST:        "60",
+			VBCSTRet:   fmtVal(item.ICMS.VBCSTRet),
+			PSTRet:     fmtVal(item.ICMS.PSTRet),
+			VICMSSTRet: fmtVal(item.ICMS.VICMSSTRet),
+		}
 	case "20":
 		vBC := vProd * (1 - item.ICMS.PRedBC/100)
 		vICMS := vBC * item.ICMS.Aliq / 100
@@ -418,6 +538,23 @@ func validarEntrada(e EntradaNFe) error {
 	}
 	if e.NNF == "" {
 		return fmt.Errorf("número da nota obrigatório")
+	}
+	if e.Mod == ModeloNFCe && e.Dest.CNPJ != "" {
+		return fmt.Errorf("NFC-e (mod=65) não aceita destinatário com CNPJ — use CPF ou deixe o destinatário sem identificação")
+	}
+	if e.Mod == ModeloNFCe && e.CSC == "" {
+		return fmt.Errorf("NFC-e (mod=65) exige CSC (Código de Segurança do Contribuinte) fornecido pela SEFAZ estadual")
+	}
+	if (e.FinNFe == "2" || e.FinNFe == "4") && e.ChaveNFeRef == "" {
+		return fmt.Errorf("finNFe=%s exige ChaveNFeRef preenchida (44 dígitos da NF-e original)", e.FinNFe)
+	}
+	if e.TpEmis == "5" {
+		if e.DhCont == "" {
+			return fmt.Errorf("TpEmis=5 (FS-DA) exige DhCont preenchida (data/hora entrada em contingência)")
+		}
+		if len(e.XJust) < 15 {
+			return fmt.Errorf("TpEmis=5 (FS-DA) exige XJust com pelo menos 15 caracteres (atual: %d)", len(e.XJust))
+		}
 	}
 	return nil
 }

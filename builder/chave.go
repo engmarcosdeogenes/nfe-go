@@ -34,14 +34,17 @@ type ChaveAcesso struct {
 }
 
 // NovaChave gera uma ChaveAcesso com cNF aleatório e calcula o cDV.
-func NovaChave(uf, cnpj, serie, nNF, tpEmis string, dhEmi time.Time) ChaveAcesso {
+// mod deve ser "55" (NF-e) ou "65" (NFC-e); se vazio assume "55".
+func NovaChave(uf, cnpj, serie, nNF, tpEmis, mod string, dhEmi time.Time) ChaveAcesso {
 	cuf := EstadoCodigo[uf]
 	if cuf == "" {
 		cuf = "99"
 	}
 	aamm := dhEmi.Format("0601")
 	cnf := fmt.Sprintf("%08d", gerarCNF())
-	mod := ModeloNFe
+	if mod == "" {
+		mod = ModeloNFe
+	}
 
 	serieF := fmt.Sprintf("%03s", serie)
 	nnfF := fmt.Sprintf("%09s", nNF)

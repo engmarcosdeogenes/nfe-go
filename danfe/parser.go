@@ -73,8 +73,13 @@ type DadosDANFE struct {
 	Duplicatas []duplicataDANFE
 
 	// Info adicional
-	InfCpl  string
+	InfCpl     string
 	InfAdFisco string
+
+	// NFC-e (mod=65)
+	Mod      string // "55"=NF-e "65"=NFC-e
+	QrCode   string // URL QR Code do infNFeSupl
+	UrlChave string // URL de consulta individual
 }
 
 type enderecoDANFE struct {
@@ -219,6 +224,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 				NatOp   string `xml:"natOp"`
 				TpAmb   string `xml:"tpAmb"`
 				FinNFe  string `xml:"finNFe"`
+				Mod     string `xml:"mod"`
 			} `xml:"ide"`
 			Emit struct {
 				CNPJ   string `xml:"CNPJ"`
@@ -267,6 +273,10 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 				InfAdFisco string `xml:"infAdFisco"`
 			} `xml:"infAdic"`
 		} `xml:"infNFe"`
+		InfNFeSupl struct {
+			QrCode   string `xml:"qrCode"`
+			UrlChave string `xml:"urlChave"`
+		} `xml:"infNFeSupl"`
 	}
 	type xmlNFeProc struct {
 		NFe     xmlNFe       `xml:"NFe"`
@@ -292,6 +302,9 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 		NatOp:           inf.Ide.NatOp,
 		TpAmb:           inf.Ide.TpAmb,
 		FinNFe:          inf.Ide.FinNFe,
+		Mod:             inf.Ide.Mod,
+		QrCode:          nfe.InfNFeSupl.QrCode,
+		UrlChave:        nfe.InfNFeSupl.UrlChave,
 		NumProtocolo:    proc.ProtNFe.NProtocolo,
 		DataAutorizacao: formatarDataHora(proc.ProtNFe.DhRecbto),
 		EmitNome:        inf.Emit.XNome,

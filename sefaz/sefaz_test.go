@@ -3,7 +3,10 @@ package sefaz_test
 import (
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/engmarcosdeogenes/nfe-go/builder"
+	"github.com/engmarcosdeogenes/nfe-go/cert"
 	"github.com/engmarcosdeogenes/nfe-go/sefaz"
 )
 
@@ -117,6 +120,107 @@ func TestObterURL_DistribuicaoDFe_Producao(t *testing.T) {
 		t.Errorf("URL de produção não contém 'nfe.fazenda.gov.br': %s", url)
 	}
 	t.Logf("DistribuicaoDFe produção: %s", url)
+}
+
+// ── AutorizarContingencia ─────────────────────────────────────────────────────
+
+func entradaContingencia() builder.EntradaNFe {
+	return builder.EntradaNFe{
+		Serie: "1", NNF: "99",
+		DhEmi:    time.Date(2026, 6, 26, 10, 0, 0, 0, time.FixedZone("BRT", -3*3600)),
+		NatOp:    "VENDA DE MERCADORIA", TpAmb: "2", FinNFe: "1",
+		IndFinal: "0", IndPres: "1",
+		TpEmis: "5",
+		DhCont: "2026-06-26T10:00:00-03:00",
+		XJust:  "Queda de internet no estabelecimento",
+		Emitente: builder.EntradaEmitente{
+			CNPJ: "11222333000181", Nome: "METALURGICA TESTE LTDA", IE: "123456789", CRT: "1",
+			End: builder.EntradaEndereco{
+				Logradouro: "Rua das Chapas", Numero: "100", Bairro: "Industrial",
+				CodigoMun: "5208707", Municipio: "Goiania", UF: "GO",
+				CEP: "74000000", Pais: "1058", NomePais: "Brasil",
+			},
+		},
+		Dest: builder.EntradaDest{
+			CNPJ: "99888777000155", Nome: "CLIENTE SA", IndIEDest: "1", IE: "987654321",
+			End: builder.EntradaEndereco{
+				Logradouro: "Av. do Aco", Numero: "500", Bairro: "Centro",
+				CodigoMun: "5208707", Municipio: "Goiania", UF: "GO",
+				CEP: "74100000", Pais: "1058", NomePais: "Brasil",
+			},
+		},
+		Itens: []builder.EntradaItem{{
+			CProd: "P001", CEAN: "SEM GTIN", Nome: "PRODUTO TESTE",
+			NCM: "73089090", CFOP: "5102", Unidade: "UN",
+			Quantidade: 1, VUnitario: 100.00,
+			ICMS: builder.EntradaICMS{CSOSN: "400"},
+		}},
+		Frete:     builder.EntradaFrete{Modalidade: "9"},
+		Pagamento: []builder.EntradaPagamento{{Forma: "01", Valor: 100.00}},
+	}
+}
+
+func certTeste(t *testing.T) *cert.Certificado {
+	t.Helper()
+	pfx, err := cert.GerarCertificadoTeste("11222333000181", "teste")
+	if err != nil {
+		t.Fatalf("GerarCertificadoTeste: %v", err)
+	}
+	c, err := cert.CarregarPFXBytes(pfx, "teste")
+	if err != nil {
+		t.Fatalf("CarregarPFXBytes: %v", err)
+	}
+	return c
+}
+
+func TestAutorizarContingencia_Sucesso(t *testing.T) {
+	assinado, err := sefaz.AutorizarContingencia(entradaContingencia(), certTeste(t))
+	if err != nil {
+		t.Fatalf("AutorizarContingencia: %v", err)
+	}
+	if len(assinado) < 1000 {
+		t.Errorf("XML assinado muito pequeno: %d bytes", len(assinado))
+	}
+	xmlStr := string(assinado)
+	if !strings.Contains(xmlStr, "<tpEmis>5</tpEmis>") {
+		t.Error("XML não contém tpEmis=5")
+	}
+	if !strings.Contains(xmlStr, "<dhCont>") {
+		t.Error("XML não contém <dhCont>")
+	}
+	if !strings.Contains(xmlStr, "<xJust>") {
+		t.Error("XML não contém <xJust>")
+	}
+	if !strings.Contains(xmlStr, "<SignatureValue>") {
+		t.Error("XML não contém assinatura digital")
+	}
+	t.Logf("AutorizarContingencia OK — %d bytes assinados", len(assinado))
+}
+
+func TestAutorizarContingencia_TpEmisErrado_Erro(t *testing.T) {
+	e := entradaContingencia()
+	e.TpEmis = "1" // não é contingência
+	_, err := sefaz.AutorizarContingencia(e, certTeste(t))
+	if err == nil {
+		t.Fatal("esperava erro: tpEmis≠5")
+	}
+	if !strings.Contains(err.Error(), "tpEmis") {
+		t.Errorf("mensagem de erro inesperada: %v", err)
+	}
+	t.Logf("Erro esperado: %v", err)
+}
+
+func TestAutorizarContingencia_SemDhCont_Erro(t *testing.T) {
+	e := entradaContingencia()
+	e.DhCont = ""
+	_, err := sefaz.AutorizarContingencia(e, certTeste(t))
+	if err == nil {
+		t.Fatal("esperava erro: DhCont ausente")
+	}
+	if !strings.Contains(err.Error(), "DhCont") {
+		t.Errorf("mensagem de erro inesperada: %v", err)
+	}
+	t.Logf("Erro esperado: %v", err)
 }
 
 func TestRetornoDistribuicao_TemMais(t *testing.T) {

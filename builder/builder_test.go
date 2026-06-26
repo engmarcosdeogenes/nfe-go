@@ -139,7 +139,7 @@ func TestBuildGeraXMLValido(t *testing.T) {
 
 func TestChaveAcesso44Digitos(t *testing.T) {
 	for i := 0; i < 10; i++ {
-		chave := builder.NovaChave("GO", "11222333000181", "1", "42", "1", time.Now())
+		chave := builder.NovaChave("GO", "11222333000181", "1", "42", "1", "55", time.Now())
 		if len(chave.String()) != 44 {
 			t.Errorf("iter %d: chave tem %d dígitos", i, len(chave.String()))
 		}
@@ -149,7 +149,7 @@ func TestChaveAcesso44Digitos(t *testing.T) {
 func TestDVChave(t *testing.T) {
 	// Chave conhecida do portal SEFAZ (exemplo da documentação)
 	// cUF=52(GO) + AAMM + CNPJ + mod + serie + nNF + tpEmis + cNF + cDV
-	chave := builder.NovaChave("GO", "11222333000181", "001", "000000042", "1", time.Now())
+	chave := builder.NovaChave("GO", "11222333000181", "001", "000000042", "1", "55", time.Now())
 	dv := chave.CDV
 	if dv < "0" || dv > "9" {
 		t.Errorf("CDV inválido: %q", dv)
@@ -320,6 +320,130 @@ func TestCRT3_ComIPI(t *testing.T) {
 	t.Logf("IPI OK — VIPI=%s PIPI=%s", imp.IPI.IPITrib.VIPI, imp.IPI.IPITrib.PIPI)
 }
 
+func TestCRT3_CST10_ST(t *testing.T) {
+	// 10 un × R$200 = R$2.000 | aliq=12% | MVA=40% | aliqST=18%
+	// vBC=2000  vICMS=240
+	// vBCST = 2000*(1+0.40)=2800  vICMSST = 2800*18%-240 = 504-240 = 264
+	e := entradaCRT3()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P010", CEAN: "SEM GTIN", Nome: "PRODUTO COM ST CST10",
+		NCM: "73089090", CFOP: "6401", Unidade: "UN",
+		Quantidade: 10, VUnitario: 200.00,
+		ICMS: builder.EntradaICMS{
+			CST: "10", Aliq: 12.0,
+			PMVAST: 40.0, AliqST: 18.0,
+		},
+	}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build CRT3 CST10: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	icms := nfe.InfNFe.Det[0].Imposto.ICMS
+	if icms.ICMS10 == nil {
+		t.Fatal("esperava ICMS10 para CST=10")
+	}
+	if icms.ICMS40 != nil || icms.ICMS00 != nil {
+		t.Error("não deveria ter ICMS40/ICMS00 quando CST=10")
+	}
+
+	i10 := icms.ICMS10
+	if i10.CST != "10" {
+		t.Errorf("CST: %q, esperava \"10\"", i10.CST)
+	}
+	if i10.VBC != "2000.00" {
+		t.Errorf("vBC: %q, esperava \"2000.00\"", i10.VBC)
+	}
+	if i10.PICMS != "12.00" {
+		t.Errorf("pICMS: %q, esperava \"12.00\"", i10.PICMS)
+	}
+	if i10.VICMS != "240.00" {
+		t.Errorf("vICMS: %q, esperava \"240.00\"", i10.VICMS)
+	}
+	if i10.VBCST != "2800.00" {
+		t.Errorf("vBCST: %q, esperava \"2800.00\"", i10.VBCST)
+	}
+	if i10.PICMSST != "18.00" {
+		t.Errorf("pICMSST: %q, esperava \"18.00\"", i10.PICMSST)
+	}
+	if i10.VICMSST != "264.00" {
+		t.Errorf("vICMSST: %q, esperava \"264.00\"", i10.VICMSST)
+	}
+
+	// XML deve conter as tags ST literalmente
+	xmlStr := string(xmlBytes)
+	for _, tag := range []string{"<vBCST>", "<pICMSST>", "<vICMSST>"} {
+		if !strings.Contains(xmlStr, tag) {
+			t.Errorf("XML não contém tag %s", tag)
+		}
+	}
+	t.Logf("ICMS10 OK — vBC=%s vICMS=%s vBCST=%s vICMSST=%s",
+		i10.VBC, i10.VICMS, i10.VBCST, i10.VICMSST)
+}
+
+func TestCRT3_CST60_STRetido(t *testing.T) {
+	// ST já retido na operação anterior.
+	// Caller informa: vBCSTRet=700 | pSTRet=18% | vICMSSTRet=126
+	e := entradaCRT3()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P060", CEAN: "SEM GTIN", Nome: "PRODUTO ST RETIDO CST60",
+		NCM: "73089090", CFOP: "5405", Unidade: "UN",
+		Quantidade: 5, VUnitario: 100.00,
+		ICMS: builder.EntradaICMS{
+			CST:        "60",
+			VBCSTRet:   700.00,
+			PSTRet:     18.0,
+			VICMSSTRet: 126.00,
+		},
+	}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build CRT3 CST60: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	icms := nfe.InfNFe.Det[0].Imposto.ICMS
+	if icms.ICMS60 == nil {
+		t.Fatal("esperava ICMS60 para CST=60")
+	}
+	if icms.ICMS40 != nil {
+		t.Error("não deveria ter ICMS40 quando CST=60")
+	}
+
+	i60 := icms.ICMS60
+	if i60.CST != "60" {
+		t.Errorf("CST: %q, esperava \"60\"", i60.CST)
+	}
+	if i60.VBCSTRet != "700.00" {
+		t.Errorf("vBCSTRet: %q, esperava \"700.00\"", i60.VBCSTRet)
+	}
+	if i60.PSTRet != "18.00" {
+		t.Errorf("pSTRet: %q, esperava \"18.00\"", i60.PSTRet)
+	}
+	if i60.VICMSSTRet != "126.00" {
+		t.Errorf("vICMSSTRet: %q, esperava \"126.00\"", i60.VICMSSTRet)
+	}
+
+	// XML deve conter as tags de ST retido
+	xmlStr := string(xmlBytes)
+	for _, tag := range []string{"<vBCSTRet>", "<vICMSSTRet>"} {
+		if !strings.Contains(xmlStr, tag) {
+			t.Errorf("XML não contém tag %s", tag)
+		}
+	}
+	t.Logf("ICMS60 OK — vBCSTRet=%s pSTRet=%s vICMSSTRet=%s",
+		i60.VBCSTRet, i60.PSTRet, i60.VICMSSTRet)
+}
+
 func TestCRT3_CST_Desconhecido_FallbackICMS40(t *testing.T) {
 	// CST não mapeado deve cair no default → ICMS40/CST=40
 	e := entradaCRT3()
@@ -371,6 +495,321 @@ func TestPagamentoSemPagamentos_DefaultSemPagto(t *testing.T) {
 	if !strings.Contains(string(xmlBytes), "<tPag>90</tPag>") {
 		t.Error("sem pagamentos, esperava tPag=90 (sem pagamento)")
 	}
+}
+
+// ── Contingência FS-DA (tpEmis=5) ────────────────────────────────────────────
+
+func TestContingencia_FSDA_XMLValido(t *testing.T) {
+	e := entradaExemplo()
+	e.TpEmis = "5"
+	e.DhCont = "2026-06-26T10:00:00-03:00"
+	e.XJust = "Queda de internet no estabelecimento"
+
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build contingência: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	ide := nfe.InfNFe.Ide
+	if ide.TpEmis != "5" {
+		t.Errorf("tpEmis: %q, esperava \"5\"", ide.TpEmis)
+	}
+	if ide.DhCont != e.DhCont {
+		t.Errorf("dhCont: %q, esperava %q", ide.DhCont, e.DhCont)
+	}
+	if ide.XJust != e.XJust {
+		t.Errorf("xJust: %q, esperava %q", ide.XJust, e.XJust)
+	}
+	xmlStr := string(xmlBytes)
+	for _, tag := range []string{"<dhCont>", "<xJust>"} {
+		if !strings.Contains(xmlStr, tag) {
+			t.Errorf("XML não contém %s", tag)
+		}
+	}
+	t.Logf("FS-DA OK — tpEmis=%s dhCont=%s", ide.TpEmis, ide.DhCont)
+}
+
+func TestContingencia_FSDA_SemDhCont_Erro(t *testing.T) {
+	e := entradaExemplo()
+	e.TpEmis = "5"
+	e.XJust = "Justificativa com mais de quinze chars"
+	// DhCont ausente → erro
+	_, _, err := builder.Build(e)
+	if err == nil {
+		t.Fatal("esperava erro: tpEmis=5 sem DhCont")
+	}
+	if !strings.Contains(err.Error(), "DhCont") {
+		t.Errorf("mensagem de erro inesperada: %v", err)
+	}
+	t.Logf("Erro esperado: %v", err)
+}
+
+func TestContingencia_FSDA_XJustCurta_Erro(t *testing.T) {
+	e := entradaExemplo()
+	e.TpEmis = "5"
+	e.DhCont = "2026-06-26T10:00:00-03:00"
+	e.XJust = "curta" // < 15 chars → erro
+	_, _, err := builder.Build(e)
+	if err == nil {
+		t.Fatal("esperava erro: xJust com menos de 15 chars")
+	}
+	if !strings.Contains(err.Error(), "XJust") {
+		t.Errorf("mensagem de erro inesperada: %v", err)
+	}
+	t.Logf("Erro esperado: %v", err)
+}
+
+// ── FinNFe com referência ─────────────────────────────────────────────────────
+
+// chave de 44 dígitos fictícia usada nos testes de referência
+const chaveRefTeste = "52260611222333000181550010000000421965432101"
+
+func TestFinNFe_Devolucao_ComRef(t *testing.T) {
+	e := entradaExemplo()
+	e.FinNFe = "4"
+	e.ChaveNFeRef = chaveRefTeste
+
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build devolução com ref: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	if nfe.InfNFe.Ide.FinNFe != "4" {
+		t.Errorf("finNFe: %q, esperava \"4\"", nfe.InfNFe.Ide.FinNFe)
+	}
+	if len(nfe.InfNFe.Ide.NFref) != 1 {
+		t.Fatalf("esperava 1 NFref, got %d", len(nfe.InfNFe.Ide.NFref))
+	}
+	if nfe.InfNFe.Ide.NFref[0].RefNFe != chaveRefTeste {
+		t.Errorf("refNFe: %q, esperava %q", nfe.InfNFe.Ide.NFref[0].RefNFe, chaveRefTeste)
+	}
+	xmlStr := string(xmlBytes)
+	if !strings.Contains(xmlStr, "<NFref>") {
+		t.Error("XML não contém <NFref>")
+	}
+	if !strings.Contains(xmlStr, "<refNFe>"+chaveRefTeste+"</refNFe>") {
+		t.Error("XML não contém <refNFe> preenchida")
+	}
+	t.Logf("Devolução com ref OK — finNFe=%s refNFe=%s",
+		nfe.InfNFe.Ide.FinNFe, nfe.InfNFe.Ide.NFref[0].RefNFe)
+}
+
+func TestFinNFe_Complementar_ComRef(t *testing.T) {
+	e := entradaExemplo()
+	e.FinNFe = "2"
+	e.ChaveNFeRef = chaveRefTeste
+
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build complementar com ref: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	if nfe.InfNFe.Ide.FinNFe != "2" {
+		t.Errorf("finNFe: %q, esperava \"2\"", nfe.InfNFe.Ide.FinNFe)
+	}
+	if len(nfe.InfNFe.Ide.NFref) != 1 {
+		t.Fatalf("esperava 1 NFref, got %d", len(nfe.InfNFe.Ide.NFref))
+	}
+	if nfe.InfNFe.Ide.NFref[0].RefNFe != chaveRefTeste {
+		t.Errorf("refNFe: %q", nfe.InfNFe.Ide.NFref[0].RefNFe)
+	}
+	if !strings.Contains(string(xmlBytes), "<NFref>") {
+		t.Error("XML não contém <NFref>")
+	}
+	t.Logf("Complementar com ref OK — finNFe=%s refNFe=%s",
+		nfe.InfNFe.Ide.FinNFe, nfe.InfNFe.Ide.NFref[0].RefNFe)
+}
+
+func TestFinNFe_Devolucao_SemRef_Erro(t *testing.T) {
+	e := entradaExemplo()
+	e.FinNFe = "4"
+	e.ChaveNFeRef = "" // ausente — deve retornar erro
+
+	_, _, err := builder.Build(e)
+	if err == nil {
+		t.Fatal("esperava erro: devolução sem ChaveNFeRef deve falhar")
+	}
+	if !strings.Contains(err.Error(), "ChaveNFeRef") {
+		t.Errorf("mensagem de erro inesperada: %v", err)
+	}
+	t.Logf("Erro esperado: %v", err)
+}
+
+// ── NFC-e (mod=65) ───────────────────────────────────────────────────────────
+
+func entradaNFCe() builder.EntradaNFe {
+	return builder.EntradaNFe{
+		Serie: "1", NNF: "1",
+		DhEmi:           time.Date(2026, 6, 26, 10, 0, 0, 0, time.FixedZone("BRT", -3*3600)),
+		NatOp:           "VENDA A CONSUMIDOR", TpAmb: "2",
+		FinNFe:          "1", IndFinal: "1", IndPres: "1",
+		Mod:             "65",
+		CSC:             "CE154B7B6FB48B77",
+		CSCId:           "000001",
+		UrlConsultaNFCe: "https://www.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe.aspx",
+		Emitente: builder.EntradaEmitente{
+			CNPJ: "11222333000181", Nome: "LOJA TESTE LTDA", IE: "123456789", CRT: "1",
+			End: builder.EntradaEndereco{
+				Logradouro: "Rua do Comercio", Numero: "10", Bairro: "Centro",
+				CodigoMun: "5208707", Municipio: "Goiania", UF: "GO",
+				CEP: "74000000", Pais: "1058", NomePais: "Brasil",
+			},
+		},
+		Itens: []builder.EntradaItem{{
+			CProd: "P001", CEAN: "SEM GTIN", Nome: "PRODUTO VENDA BALCAO",
+			NCM: "73089090", CFOP: "5102", Unidade: "UN",
+			Quantidade: 2, VUnitario: 25.00,
+			ICMS: builder.EntradaICMS{CSOSN: "400"},
+		}},
+		Frete:     builder.EntradaFrete{Modalidade: "9"},
+		Pagamento: []builder.EntradaPagamento{{Forma: "01", Valor: 50.00}},
+	}
+}
+
+func TestNFCe_Builder_Basico(t *testing.T) {
+	// NFC-e sem destinatário identificado (consumidor anônimo no balcão)
+	e := entradaNFCe()
+
+	xmlBytes, chave, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build NFC-e: %v", err)
+	}
+
+	// chave deve ter 44 dígitos com mod=65 na posição 20-21
+	chaveStr := chave.String()
+	if len(chaveStr) != 44 {
+		t.Errorf("chave NFC-e tem %d dígitos (esperava 44)", len(chaveStr))
+	}
+	if chaveStr[20:22] != "65" {
+		t.Errorf("mod na chave: %q (esperava \"65\")", chaveStr[20:22])
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	ide := nfe.InfNFe.Ide
+	if ide.Mod != "65" {
+		t.Errorf("mod no XML: %q (esperava \"65\")", ide.Mod)
+	}
+	if ide.TpImp != "4" {
+		t.Errorf("tpImp no XML: %q (esperava \"4\" para NFC-e)", ide.TpImp)
+	}
+	if nfe.InfNFe.Dest != nil {
+		t.Error("dest deve ser nil para NFC-e sem destinatário identificado")
+	}
+
+	xmlStr := string(xmlBytes)
+	if strings.Contains(xmlStr, "<dest>") {
+		t.Error("XML não deveria conter <dest> para NFC-e sem destinatário")
+	}
+	if !strings.Contains(xmlStr, "<mod>65</mod>") {
+		t.Error("XML não contém <mod>65</mod>")
+	}
+	if !strings.Contains(xmlStr, "<tpImp>4</tpImp>") {
+		t.Error("XML não contém <tpImp>4</tpImp>")
+	}
+	t.Logf("NFC-e OK — chave=%s mod=%s tpImp=%s", chaveStr, ide.Mod, ide.TpImp)
+}
+
+func TestNFCe_SemCSC_Erro(t *testing.T) {
+	e := entradaNFCe()
+	e.CSC = "" // ausente → deve falhar
+	_, _, err := builder.Build(e)
+	if err == nil {
+		t.Fatal("esperava erro: NFC-e sem CSC")
+	}
+	if !strings.Contains(err.Error(), "CSC") {
+		t.Errorf("mensagem de erro inesperada: %v", err)
+	}
+	t.Logf("Erro esperado: %v", err)
+}
+
+func TestNFCe_QRCode_Gerado(t *testing.T) {
+	e := entradaNFCe()
+
+	xmlBytes, chave, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build NFC-e QRCode: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	if nfe.InfNFeSupl == nil {
+		t.Fatal("InfNFeSupl nil — esperava QR Code para NFC-e")
+	}
+	if nfe.InfNFeSupl.QrCode == "" {
+		t.Error("qrCode vazio")
+	}
+	if !strings.Contains(nfe.InfNFeSupl.UrlChave, chave.String()) {
+		t.Errorf("urlChave %q não contém a chave de acesso %q",
+			nfe.InfNFeSupl.UrlChave, chave.String())
+	}
+
+	xmlStr := string(xmlBytes)
+	for _, tag := range []string{"<infNFeSupl>", "<qrCode>", "<urlChave>"} {
+		if !strings.Contains(xmlStr, tag) {
+			t.Errorf("XML não contém %s", tag)
+		}
+	}
+	t.Logf("NFC-e QR Code OK\n  qrCode=%s\n  urlChave=%s",
+		nfe.InfNFeSupl.QrCode, nfe.InfNFeSupl.UrlChave)
+}
+
+func TestNFCe_Builder_CNPJDestRejeitado(t *testing.T) {
+	// NFC-e com CNPJ no destinatário deve falhar
+	e := builder.EntradaNFe{
+		Serie: "1", NNF: "2",
+		DhEmi:    time.Date(2026, 6, 26, 10, 0, 0, 0, time.FixedZone("BRT", -3*3600)),
+		NatOp:    "VENDA A CONSUMIDOR", TpAmb: "2",
+		FinNFe:   "1", IndFinal: "1", IndPres: "1",
+		Mod: "65",
+		Emitente: builder.EntradaEmitente{
+			CNPJ: "11222333000181", Nome: "LOJA TESTE LTDA", IE: "123456789", CRT: "1",
+			End: builder.EntradaEndereco{
+				Logradouro: "Rua do Comercio", Numero: "10", Bairro: "Centro",
+				CodigoMun: "5208707", Municipio: "Goiania", UF: "GO",
+				CEP: "74000000", Pais: "1058", NomePais: "Brasil",
+			},
+		},
+		Dest: builder.EntradaDest{CNPJ: "99888777000155", Nome: "EMPRESA CNPJ SA"},
+		Itens: []builder.EntradaItem{{
+			CProd: "P001", CEAN: "SEM GTIN", Nome: "PRODUTO",
+			NCM: "73089090", CFOP: "5102", Unidade: "UN",
+			Quantidade: 1, VUnitario: 10.00,
+			ICMS: builder.EntradaICMS{CSOSN: "400"},
+		}},
+		Frete:     builder.EntradaFrete{Modalidade: "9"},
+		Pagamento: []builder.EntradaPagamento{{Forma: "01", Valor: 10.00}},
+	}
+
+	_, _, err := builder.Build(e)
+	if err == nil {
+		t.Fatal("esperava erro: NFC-e com CNPJ de destinatário deve ser rejeitado")
+	}
+	if !strings.Contains(err.Error(), "NFC-e") {
+		t.Errorf("mensagem de erro inesperada: %v", err)
+	}
+	t.Logf("Erro esperado: %v", err)
 }
 
 func TestChaveAcesso_DoisBuildsMesmaEntrada_ChavesDiferentes(t *testing.T) {

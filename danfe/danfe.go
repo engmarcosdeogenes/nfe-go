@@ -14,6 +14,7 @@ import (
 	"github.com/boombuler/barcode"
 	"github.com/boombuler/barcode/code128"
 	"github.com/go-pdf/fpdf"
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 // Gerar recebe o XML de uma NF-e (assinada ou nfeProc com protocolo)
@@ -691,4 +692,231 @@ func inserirPontos(s string) string {
 		result = append(result, s[i]) // s contém apenas dígitos ASCII — acesso por byte é seguro
 	}
 	return string(result)
+}
+
+// ── NFC-e — Cupom 80mm ────────────────────────────────────────────────────────
+
+const (
+	cupomLarg = 80.0               // largura do papel cupom em mm
+	cupomMarg = 3.0                // margem lateral em mm
+	cupomLW   = cupomLarg - 2*cupomMarg // largura útil = 74mm
+)
+
+// GerarDANFENFCe gera o cupom fiscal digital 80mm para NFC-e (mod=65).
+// O XML de entrada pode ser <NFe> simples ou <nfeProc> com protocolo.
+func GerarDANFENFCe(xmlNFeProc []byte) ([]byte, error) {
+	dados, err := ParseNFeXML(xmlNFeProc)
+	if err != nil {
+		return nil, fmt.Errorf("danfe: nfce: %w", err)
+	}
+	return renderizarCupom(dados)
+}
+
+func renderizarCupom(d *DadosDANFE) ([]byte, error) {
+	pdf := fpdf.NewCustom(&fpdf.InitType{
+		OrientationStr: "P",
+		UnitStr:        "mm",
+		Size:           fpdf.SizeType{Wd: cupomLarg, Ht: 500.0},
+	})
+	pdf.SetMargins(cupomMarg, cupomMarg, cupomMarg)
+	pdf.SetAutoPageBreak(false, 0)
+	pdf.AddPage()
+
+	y := cupomMarg
+
+	// Watermark SEM VALOR FISCAL (homologação)
+	if d.TpAmb == "2" {
+		pdf.SetFont("Arial", "B", 14)
+		pdf.SetTextColor(210, 210, 210)
+		pdf.SetXY(cupomMarg, y)
+		pdf.CellFormat(cupomLW, 6, "SEM VALOR FISCAL", "", 2, "C", false, 0, "")
+		pdf.SetTextColor(0, 0, 0)
+		y += 7
+	}
+
+	y = cupomCabecalho(pdf, d, y)
+	y = cupomSeparador(pdf, y)
+	y = cupomItens(pdf, d, y)
+	y = cupomSeparador(pdf, y)
+	y = cupomTotais(pdf, d, y)
+	y = cupomPagamento(pdf, d, y)
+	y = cupomSeparador(pdf, y)
+	y = cupomQRCode(pdf, d, y)
+	cupomChaveAcesso(pdf, d, y)
+
+	if pdf.Err() {
+		return nil, fmt.Errorf("danfe: nfce: fpdf: %s", pdf.Error())
+	}
+	var buf bytes.Buffer
+	if err := pdf.Output(&buf); err != nil {
+		return nil, fmt.Errorf("danfe: nfce: output: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+func cupomCabecalho(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+	nome := d.EmitNome
+	if d.EmitFantasia != "" {
+		nome = d.EmitFantasia
+	}
+
+	pdf.SetFont("Arial", "B", 8)
+	pdf.SetXY(cupomMarg, y)
+	pdf.MultiCell(cupomLW, 4, nome, "", "C", false)
+	y = pdf.GetY()
+
+	pdf.SetFont("Arial", "", 7)
+	pdf.SetX(cupomMarg)
+	pdf.CellFormat(cupomLW, 3.5, "CNPJ: "+d.EmitCNPJ, "", 2, "C", false, 0, "")
+
+	end := d.EmitEnd
+	if end.Logradouro != "" {
+		logr := end.Logradouro
+		if end.Numero != "" {
+			logr += ", " + end.Numero
+		}
+		pdf.SetX(cupomMarg)
+		pdf.CellFormat(cupomLW, 3.5, logr, "", 2, "C", false, 0, "")
+	}
+
+	bairroMun := end.Bairro
+	if end.Municipio != "" {
+		if bairroMun != "" {
+			bairroMun += " - "
+		}
+		bairroMun += end.Municipio
+		if end.UF != "" {
+			bairroMun += "/" + end.UF
+		}
+	}
+	if bairroMun != "" {
+		pdf.SetX(cupomMarg)
+		pdf.CellFormat(cupomLW, 3.5, bairroMun, "", 2, "C", false, 0, "")
+	}
+
+	if d.NatOp != "" {
+		pdf.SetFont("Arial", "", 6)
+		pdf.SetX(cupomMarg)
+		pdf.CellFormat(cupomLW, 3, d.NatOp, "", 2, "C", false, 0, "")
+	}
+
+	return pdf.GetY()
+}
+
+func cupomSeparador(pdf *fpdf.Fpdf, y float64) float64 {
+	pdf.SetDrawColor(0, 0, 0)
+	pdf.SetLineWidth(0.2)
+	pdf.Line(cupomMarg, y+1, cupomMarg+cupomLW, y+1)
+	return y + 3
+}
+
+func cupomItens(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+	pdf.SetFont("Arial", "B", 7)
+	pdf.SetXY(cupomMarg, y)
+	pdf.CellFormat(cupomLW, 4, "ITEM  DESCRIÇÃO", "", 2, "L", false, 0, "")
+	y = pdf.GetY()
+
+	for _, item := range d.Itens {
+		// Linha 1: número e nome do produto
+		pdf.SetFont("Arial", "", 7)
+		pdf.SetXY(cupomMarg, y)
+		pdf.MultiCell(cupomLW, 3.5, fmt.Sprintf("%d. %s", item.Num, item.XProd), "", "L", false)
+		y = pdf.GetY()
+
+		// Linha 2: qtd × vUnit = vProd
+		linha2 := fmt.Sprintf("   %s x %s = %s",
+			formatarQtdCupom(item.Qtd),
+			formatarMoeda(item.VUnit),
+			formatarMoeda(item.VProd))
+		pdf.SetXY(cupomMarg, y)
+		pdf.CellFormat(cupomLW, 3.5, linha2, "", 2, "L", false, 0, "")
+		y = pdf.GetY() + 0.5
+	}
+	return y
+}
+
+func cupomTotais(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+	wL := cupomLW * 0.55
+	wR := cupomLW - wL
+
+	// row é uma closure que captura y por referência — cada chamada avança y
+	row := func(label, valor string, bold bool) {
+		estilo := ""
+		if bold {
+			estilo = "B"
+		}
+		pdf.SetFont("Arial", estilo, 8)
+		pdf.SetXY(cupomMarg, y)
+		pdf.CellFormat(wL, 4.5, label, "", 0, "L", false, 0, "")
+		pdf.CellFormat(wR, 4.5, valor, "", 2, "R", false, 0, "")
+		y = pdf.GetY()
+	}
+
+	row("Subtotal", formatarMoeda(d.VProd), false)
+	if d.VDesc > 0 {
+		row("Desconto", "-"+formatarMoeda(d.VDesc), false)
+	}
+	if d.VFrete > 0 {
+		row("Frete", formatarMoeda(d.VFrete), false)
+	}
+	row("TOTAL", formatarMoeda(d.VNF), true)
+
+	return y
+}
+
+func cupomPagamento(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+	if len(d.Pagamentos) == 0 {
+		return y
+	}
+
+	pdf.SetFont("Arial", "B", 7)
+	pdf.SetXY(cupomMarg, y)
+	pdf.CellFormat(cupomLW, 4, "PAGAMENTO", "", 2, "L", false, 0, "")
+	y = pdf.GetY()
+
+	wL := cupomLW * 0.60
+	wR := cupomLW - wL
+	for _, p := range d.Pagamentos {
+		pdf.SetFont("Arial", "", 8)
+		pdf.SetXY(cupomMarg, y)
+		pdf.CellFormat(wL, 4.5, p.Forma, "", 0, "L", false, 0, "")
+		pdf.CellFormat(wR, 4.5, formatarMoeda(p.Valor), "", 2, "R", false, 0, "")
+		y = pdf.GetY()
+	}
+	return y
+}
+
+func cupomQRCode(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+	if d.QrCode == "" {
+		return y
+	}
+
+	qrPNG, err := qrcode.Encode(d.QrCode, qrcode.Medium, 200)
+	if err != nil {
+		return y
+	}
+
+	const tamQR = 45.0 // mm — centralizado na largura útil de 74mm
+	xQR := cupomMarg + (cupomLW-tamQR)/2
+	pdf.RegisterImageOptionsReader("nfce_qr", fpdf.ImageOptions{ImageType: "PNG"}, bytes.NewReader(qrPNG))
+	pdf.Image("nfce_qr", xQR, y, tamQR, tamQR, false, "", 0, "")
+
+	return y + tamQR + 2
+}
+
+func cupomChaveAcesso(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+	if d.ChaveAcesso == "" {
+		return y
+	}
+	pdf.SetFont("Arial", "", 6)
+	pdf.SetXY(cupomMarg, y)
+	pdf.MultiCell(cupomLW, 3, formatarChave(d.ChaveAcesso), "", "C", false)
+	return pdf.GetY()
+}
+
+func formatarQtdCupom(v float64) string {
+	if v == float64(int64(v)) {
+		return fmt.Sprintf("%d", int64(v))
+	}
+	return fmt.Sprintf("%.3f", v)
 }

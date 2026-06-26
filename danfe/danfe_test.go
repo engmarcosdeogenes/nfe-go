@@ -386,6 +386,98 @@ func TestGerarComDuplicatas(t *testing.T) {
 	t.Logf("PDF com 3 duplicatas gerado: %d bytes", len(pdfBytes))
 }
 
+func TestGerarDANFENFCe(t *testing.T) {
+	const xmlNFCe = `<?xml version="1.0" encoding="UTF-8"?>
+<NFe xmlns="http://www.portalfiscal.inf.br/nfe">
+  <infNFe Id="NFe52260611222333000181650010000000011576709071" versao="4.00">
+    <ide>
+      <cUF>52</cUF><cNF>15767090</cNF>
+      <natOp>VENDA A CONSUMIDOR</natOp>
+      <mod>65</mod>
+      <serie>1</serie><nNF>1</nNF>
+      <dhEmi>2026-06-26T10:00:00-03:00</dhEmi>
+      <tpNF>1</tpNF><idDest>1</idDest><cMunFG>5208707</cMunFG>
+      <tpImp>4</tpImp><tpEmis>1</tpEmis><cDV>1</cDV>
+      <tpAmb>2</tpAmb><finNFe>1</finNFe><indFinal>1</indFinal>
+      <indPres>1</indPres><procEmi>0</procEmi><verProc>nfe-go v1.0</verProc>
+    </ide>
+    <emit>
+      <CNPJ>11222333000181</CNPJ>
+      <xNome>LOJA TESTE LTDA</xNome>
+      <enderEmit>
+        <xLgr>Rua do Comercio</xLgr><nro>10</nro>
+        <xBairro>Centro</xBairro><cMun>5208707</cMun>
+        <xMun>Goiania</xMun><UF>GO</UF><CEP>74000000</CEP>
+        <cPais>1058</cPais><xPais>Brasil</xPais>
+      </enderEmit>
+      <IE>123456789</IE><CRT>1</CRT>
+    </emit>
+    <det nItem="1">
+      <prod>
+        <cProd>P001</cProd><cEAN>SEM GTIN</cEAN>
+        <xProd>PRODUTO TESTE NFC-E</xProd>
+        <NCM>73089090</NCM><CFOP>5102</CFOP>
+        <uCom>UN</uCom><qCom>2.0000</qCom>
+        <vUnCom>25.00</vUnCom><vProd>50.00</vProd>
+        <cEANTrib>SEM GTIN</cEANTrib><uTrib>UN</uTrib>
+        <qTrib>2.0000</qTrib><vUnTrib>25.00</vUnTrib><indTot>1</indTot>
+      </prod>
+      <imposto>
+        <ICMS><ICMSSN102><orig>0</orig><CSOSN>400</CSOSN></ICMSSN102></ICMS>
+        <PIS><PISNT><CST>07</CST></PISNT></PIS>
+        <COFINS><COFINSNT><CST>07</CST></COFINSNT></COFINS>
+      </imposto>
+    </det>
+    <total>
+      <ICMSTot>
+        <vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson>
+        <vFCP>0.00</vFCP><vBCST>0.00</vBCST><vST>0.00</vST>
+        <vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet>
+        <vProd>50.00</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg>
+        <vDesc>0.00</vDesc><vII>0.00</vII><vIPI>0.00</vIPI>
+        <vIPIDevol>0.00</vIPIDevol><vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS>
+        <vOutro>0.00</vOutro><vNF>50.00</vNF><vTotTrib>0.00</vTotTrib>
+      </ICMSTot>
+    </total>
+    <transp><modFrete>9</modFrete></transp>
+    <pag><detPag><tPag>01</tPag><vPag>50.00</vPag></detPag></pag>
+  </infNFe>
+  <infNFeSupl>
+    <qrCode>https://www.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe.aspx?p=52260611222333000181650010000000011576709071|100|2||20260626100000|50.00|0.00||000001|7612BE367759C5E02A51AFF459CD016FD9188B4A</qrCode>
+    <urlChave>https://www.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe.aspx?chNFe=52260611222333000181650010000000011576709071</urlChave>
+  </infNFeSupl>
+</NFe>`
+
+	// Verificar que o QR Code é parseado
+	dados, err := danfe.ParseNFeXML([]byte(xmlNFCe))
+	if err != nil {
+		t.Fatalf("ParseNFeXML: %v", err)
+	}
+	if dados.Mod != "65" {
+		t.Errorf("Mod: %q (esperava \"65\")", dados.Mod)
+	}
+	if dados.QrCode == "" {
+		t.Error("QrCode vazio após parse")
+	}
+	if dados.UrlChave == "" {
+		t.Error("UrlChave vazia após parse")
+	}
+
+	// Gerar cupom 80mm
+	pdfBytes, err := danfe.GerarDANFENFCe([]byte(xmlNFCe))
+	if err != nil {
+		t.Fatalf("GerarDANFENFCe: %v", err)
+	}
+	if len(pdfBytes) < 500 {
+		t.Errorf("PDF NFC-e muito pequeno: %d bytes", len(pdfBytes))
+	}
+	if !strings.HasPrefix(string(pdfBytes[:4]), "%PDF") {
+		t.Error("output não é um PDF válido (não começa com %PDF)")
+	}
+	t.Logf("NFC-e cupom OK — %d bytes | Mod=%s | QrCode[..40]=%s",
+		len(pdfBytes), dados.Mod, dados.QrCode[:40])
+}
+
 func TestParseNFeXML(t *testing.T) {
 	nfeXML := nfeAssinadaParaTeste(t)
 

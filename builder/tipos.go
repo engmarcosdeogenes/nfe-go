@@ -13,9 +13,17 @@ const (
 // ── Raiz ─────────────────────────────────────────────────────────────────────
 
 type NFe struct {
-	XMLName xml.Name `xml:"NFe"`
-	Xmlns   string   `xml:"xmlns,attr"`
-	InfNFe  InfNFe   `xml:"infNFe"`
+	XMLName    xml.Name    `xml:"NFe"`
+	Xmlns      string      `xml:"xmlns,attr"`
+	InfNFe     InfNFe      `xml:"infNFe"`
+	InfNFeSupl *InfNFeSupl `xml:"infNFeSupl,omitempty"` // NFC-e: QR Code e URL de consulta
+}
+
+// InfNFeSupl — informações suplementares presentes apenas na NFC-e (mod=65).
+// Posição no XML: filho de <NFe>, após <infNFe>, antes de <Signature>.
+type InfNFeSupl struct {
+	QrCode   string `xml:"qrCode"`
+	UrlChave string `xml:"urlChave"`
 }
 
 // ATENÇÃO: Id vem antes de Versao no struct para que encoding/xml produza
@@ -24,10 +32,10 @@ type InfNFe struct {
 	Id     string `xml:"Id,attr"`
 	Versao string `xml:"versao,attr"`
 
-	Ide      Ide       `xml:"ide"`
-	Emit     Emitente  `xml:"emit"`
-	Dest     Destinatario `xml:"dest"`
-	Det      []Detalhe `xml:"det"`
+	Ide      Ide          `xml:"ide"`
+	Emit     Emitente     `xml:"emit"`
+	Dest     *Destinatario `xml:"dest,omitempty"`
+	Det      []Detalhe    `xml:"det"`
 	Total    Total     `xml:"total"`
 	Transp   Transporte `xml:"transp"`
 	Cobr     *Cobranca  `xml:"cobr,omitempty"`
@@ -57,8 +65,16 @@ type Ide struct {
 	IndFinal string `xml:"indFinal"` // 0=não consumidor final, 1=consumidor final
 	IndPres  string `xml:"indPres"`  // 1=presencial, 2=internet, 9=outros
 	IndIntermed string `xml:"indIntermed,omitempty"` // 0=sem intermediador, 1=com
-	ProcEmi  string `xml:"procEmi"`  // 0=aplicativo contrib.
-	VerProc  string `xml:"verProc"`  // versão do processo de emissão
+	ProcEmi  string   `xml:"procEmi"`              // 0=aplicativo contrib.
+	VerProc  string   `xml:"verProc"`              // versão do processo de emissão
+	DhCont   string   `xml:"dhCont,omitempty"`     // data/hora entrada contingência (tpEmis≠1)
+	XJust    string   `xml:"xJust,omitempty"`      // justificativa contingência ≥15 chars
+	NFref    []NFref  `xml:"NFref,omitempty"`      // chaves das NF-e referenciadas (finNFe 2/4)
+}
+
+// NFref referencia a NF-e original em notas complementares (finNFe=2) e de devolução (finNFe=4).
+type NFref struct {
+	RefNFe string `xml:"refNFe,omitempty"` // chave de acesso 44 dígitos
 }
 
 // ── Emitente ─────────────────────────────────────────────────────────────────
