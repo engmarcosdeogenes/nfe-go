@@ -45,6 +45,16 @@ func NovoCliente(cuf string, amb Ambiente, c *cert.Certificado) (*Cliente, error
 	return &Cliente{cuf: cuf, amb: amb, http: httpClient}, nil
 }
 
+// NovoClienteTransporte cria um Cliente com transport HTTP customizado.
+// Destinado a testes — permite injetar um http.RoundTripper mock sem certificado real.
+func NovoClienteTransporte(cuf string, amb Ambiente, rt http.RoundTripper) *Cliente {
+	return &Cliente{
+		cuf:  cuf,
+		amb:  amb,
+		http: &http.Client{Transport: rt, Timeout: 30 * time.Second},
+	}
+}
+
 // ── Envelope SOAP ─────────────────────────────────────────────────────────────
 
 const soapEnvelopeTPL = `<?xml version="1.0" encoding="UTF-8"?>` +

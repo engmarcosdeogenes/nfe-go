@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/engmarcosdeogenes/nfe-go/cert"
 )
 
 // ── NFeDistribuicaoDFe ────────────────────────────────────────────────────────
@@ -182,6 +184,80 @@ func descomprimirDFe(b64gzip string) ([]byte, error) {
 	}
 	defer gr.Close()
 	return io.ReadAll(gr)
+}
+
+// ── SincronizarDFe ───────────────────────────────────────────────────────────
+
+// DocumentoDFe representa um documento retornado pela sincronização DFe.
+type DocumentoDFe struct {
+	// NSU: Número Sequencial Único do documento.
+	NSU int
+	// TipoDoc: schema do documento (ex: "procNFe_v4.00.xsd", "resNFe_v1.01.xsd").
+	TipoDoc string
+	// XML: conteúdo do documento. Para resumos (Resumo=true), pode estar vazio se
+	// ConsultarNSUDFe falhou ao buscar o XML completo.
+	XML []byte
+	// Resumo: true quando o documento é sumário (resNFe/resEvento) e o XML completo
+	// não pôde ser obtido via ConsultarNSUDFe.
+	Resumo bool
+}
+
+const maxPaginasSincronizar = 100
+
+// SincronizarDFe sincroniza documentos DFe a partir de ultNSU, paginando automaticamente.
+// Para cada documento resumo (resNFe / resEvento), chama ConsultarNSUDFe para obter o XML completo.
+// Interrompe após 100 páginas e retorna os documentos coletados até ali com erro de limite.
+func (cl *Cliente) SincronizarDFe(ctx context.Context, cnpj string, ultNSU int) ([]DocumentoDFe, error) {
+	var todos []DocumentoDFe
+	nsuStr := fmt.Sprintf("%d", ultNSU)
+
+	for pagina := 0; pagina < maxPaginasSincronizar; pagina++ {
+		ret, err := cl.DistribuirDFe(ctx, cnpj, nsuStr)
+		if err != nil {
+			return todos, fmt.Errorf("sefaz: SincronizarDFe página %d: %w", pagina+1, err)
+		}
+
+		for _, doc := range ret.Docs {
+			resumo := doc.Schema == DocResNFe || doc.Schema == DocResEvento
+			xmlBytes := doc.XML
+
+			if resumo {
+				full, err := cl.ConsultarNSUDFe(ctx, cnpj, doc.NSU)
+				if err == nil && len(full.Docs) > 0 && len(full.Docs[0].XML) > 0 {
+					xmlBytes = full.Docs[0].XML
+					resumo = false
+				}
+			}
+
+			var nsuInt int
+			fmt.Sscanf(doc.NSU, "%d", &nsuInt)
+
+			todos = append(todos, DocumentoDFe{
+				NSU:     nsuInt,
+				TipoDoc: string(doc.Schema),
+				XML:     xmlBytes,
+				Resumo:  resumo,
+			})
+		}
+
+		nsuStr = ret.UltNSU
+		if !ret.TemMais() {
+			return todos, nil
+		}
+	}
+
+	return todos, fmt.Errorf("sefaz: SincronizarDFe: limite de %d páginas atingido; últimoNSU=%s",
+		maxPaginasSincronizar, nsuStr)
+}
+
+// SincronizarDFe é uma função de conveniência que cria internamente um cliente para o serviço
+// nacional de DFe (cUFAutor="91"). Para transport customizado (testes), use NovoClienteTransporte.
+func SincronizarDFe(c *cert.Certificado, cnpj string, ultNSU int, amb Ambiente) ([]DocumentoDFe, error) {
+	cl, err := NovoCliente("91", amb, c)
+	if err != nil {
+		return nil, fmt.Errorf("sefaz: SincronizarDFe: criar cliente: %w", err)
+	}
+	return cl.SincronizarDFe(context.Background(), cnpj, ultNSU)
 }
 
 // soAlfaNum remove pontos, traços, barras e espaços de strings de documento (CNPJ, CPF, chave).

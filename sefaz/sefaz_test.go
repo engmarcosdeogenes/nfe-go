@@ -1,6 +1,10 @@
 package sefaz_test
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -242,6 +246,137 @@ func TestRetornoDistribuicao_TemMais(t *testing.T) {
 				c.ultNSU, c.maxNSU, got, c.espera)
 		}
 	}
+}
+
+// ── SincronizarDFe ───────────────────────────────────────────────────────────
+
+// mockDFeTransport intercepta chamadas HTTP e retorna uma resposta SOAP com
+// UltNSU < MaxNSU (TemMais=true) e lote vazio — simula paginação infinita.
+type mockDFeTransport struct {
+	ultNSU string
+	maxNSU string
+}
+
+func (m *mockDFeTransport) RoundTrip(_ *http.Request) (*http.Response, error) {
+	body := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">`+
+		`<soap12:Body>`+
+		`<nfeDistDFeInteresseResult>`+
+		`<retDistDFeInt versao="1.01" xmlns="http://www.portalfiscal.inf.br/nfe">`+
+		`<tpAmb>2</tpAmb>`+
+		`<cStat>137</cStat>`+
+		`<xMotivo>Documento(s) localizado(s)</xMotivo>`+
+		`<ultNSU>%s</ultNSU>`+
+		`<maxNSU>%s</maxNSU>`+
+		`<loteDistDFeInt/>`+
+		`</retDistDFeInt>`+
+		`</nfeDistDFeInteresseResult>`+
+		`</soap12:Body>`+
+		`</soap12:Envelope>`, m.ultNSU, m.maxNSU)
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+	}, nil
+}
+
+func TestSincronizarDFe_LimiteProtecao(t *testing.T) {
+	mock := &mockDFeTransport{
+		ultNSU: "000000000000001",
+		maxNSU: "999999999999999",
+	}
+	cl := sefaz.NovoClienteTransporte("52", sefaz.Homologacao, mock)
+	ctx := context.Background()
+
+	docs, err := cl.SincronizarDFe(ctx, "11222333000181", 0)
+	if err == nil {
+		t.Fatal("esperava erro de limite de páginas")
+	}
+	if !strings.Contains(err.Error(), "limite") {
+		t.Errorf("mensagem de erro inesperada: %v", err)
+	}
+	t.Logf("SincronizarDFe parou com %d docs coletados, erro: %v", len(docs), err)
+}
+
+// ── CartaCorrecao ─────────────────────────────────────────────────────────────
+
+func TestCartaCorrecao_XCorrecaoCurto(t *testing.T) {
+	c := certTeste(t)
+	chNFe := strings.Repeat("5", 44)
+	_, err := sefaz.CartaCorrecao(c, chNFe, "curto", sefaz.XCondUsoCartaCorrecao, 1, sefaz.Homologacao)
+	if err == nil {
+		t.Fatal("esperava erro: xCorrecao < 15 chars")
+	}
+	if !strings.Contains(err.Error(), "mínimo 15") {
+		t.Errorf("mensagem de erro inesperada: %v", err)
+	}
+	t.Logf("Erro esperado: %v", err)
+}
+
+func TestCartaCorrecao_XCorrecaoLongo(t *testing.T) {
+	c := certTeste(t)
+	chNFe := strings.Repeat("5", 44)
+	_, err := sefaz.CartaCorrecao(c, chNFe, strings.Repeat("x", 1001), sefaz.XCondUsoCartaCorrecao, 1, sefaz.Homologacao)
+	if err == nil {
+		t.Fatal("esperava erro: xCorrecao > 1000 chars")
+	}
+	if !strings.Contains(err.Error(), "máximo 1000") {
+		t.Errorf("mensagem de erro inesperada: %v", err)
+	}
+	t.Logf("Erro esperado: %v", err)
+}
+
+// ── InutilizarLote ───────────────────────────────────────────────────────────
+
+func TestInutilizarLote_ValidacaoTamanhos(t *testing.T) {
+	c := certTeste(t)
+	_, err := sefaz.InutilizarLote(
+		c, "52", "11222333000181", "26", "1",
+		[]int{1, 2},  // 2 elementos
+		[]int{10},    // 1 elemento — divergente
+		[]string{"justificativa valida longa o suficiente", "segunda"},
+		sefaz.Homologacao,
+	)
+	if err == nil {
+		t.Fatal("esperava erro: tamanhos divergentes")
+	}
+	if !strings.Contains(err.Error(), "mesmo tamanho") {
+		t.Errorf("mensagem de erro inesperada: %v", err)
+	}
+	t.Logf("Erro esperado: %v", err)
+}
+
+func TestInutilizarLote_Estrutura(t *testing.T) {
+	c := certTeste(t)
+	// Justificativas curtas (< 15 chars) provocam erro local — sem chamada de rede.
+	// Verifica que ambas as faixas são tentadas (não aborta no primeiro erro).
+	resultados, err := sefaz.InutilizarLote(
+		c, "52", "11222333000181", "26", "1",
+		[]int{100, 200},
+		[]int{109, 209},
+		[]string{"curta", "curta2"},
+		sefaz.Homologacao,
+	)
+	if err != nil {
+		t.Fatalf("InutilizarLote retornou erro fatal: %v", err)
+	}
+	if len(resultados) != 2 {
+		t.Fatalf("esperava 2 resultados, got %d", len(resultados))
+	}
+	if resultados[0].NIni != 100 || resultados[0].NFin != 109 {
+		t.Errorf("faixa 0: NIni=%d NFin=%d, want 100/109", resultados[0].NIni, resultados[0].NFin)
+	}
+	if resultados[1].NIni != 200 || resultados[1].NFin != 209 {
+		t.Errorf("faixa 1: NIni=%d NFin=%d, want 200/209", resultados[1].NIni, resultados[1].NFin)
+	}
+	for i, r := range resultados {
+		if r.Erro == nil {
+			t.Errorf("resultado[%d]: esperava Erro não-nil (justificativa inválida)", i)
+		}
+	}
+	t.Logf("InutilizarLote Estrutura OK — [%d,%d] err=%v | [%d,%d] err=%v",
+		resultados[0].NIni, resultados[0].NFin, resultados[0].Erro,
+		resultados[1].NIni, resultados[1].NFin, resultados[1].Erro)
 }
 
 func TestTipoDocDFeConstantes(t *testing.T) {
