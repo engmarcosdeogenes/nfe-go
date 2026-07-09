@@ -84,7 +84,7 @@ type Emitente struct {
 	XNome     string         `xml:"xNome"`
 	XFant     string         `xml:"xFant,omitempty"`
 	EnderEmit EnderecoEmit   `xml:"enderEmit"`
-	IE        string         `xml:"IE"`
+	IE        string         `xml:"IE,omitempty"` // omitido quando o emitente não tem IE (ex: empresa só de serviço)
 	IEST      string         `xml:"IEST,omitempty"`
 	CRT       string         `xml:"CRT"` // 1=Simples, 2=Simples Excesso, 3=Normal
 }
