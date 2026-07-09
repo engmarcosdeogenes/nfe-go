@@ -68,6 +68,19 @@ func envelopar(body string) []byte {
 	return []byte(fmt.Sprintf(soapEnvelopeTPL, body))
 }
 
+// removerDeclaracaoXML retira o prólogo `<?xml ...?>` de um XML já assinado,
+// se presente. Necessário antes de embutir esse XML dentro de outro documento
+// XML/SOAP — um documento não pode conter uma segunda declaração no meio dele.
+func removerDeclaracaoXML(x []byte) []byte {
+	t := bytes.TrimSpace(x)
+	if bytes.HasPrefix(t, []byte("<?xml")) {
+		if i := bytes.Index(t, []byte("?>")); i >= 0 {
+			return bytes.TrimSpace(t[i+2:])
+		}
+	}
+	return t
+}
+
 // ── Chamada genérica ──────────────────────────────────────────────────────────
 
 // chamar envia um envelope SOAP para o serviço indicado e retorna o body da resposta.

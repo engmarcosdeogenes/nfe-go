@@ -36,10 +36,11 @@ func (cl *Cliente) EnviarLote(ctx context.Context, lote LoteNFe) (*RetornoEnvioL
 		return nil, fmt.Errorf("sefaz: lote com %d NF-e excede o limite de 50", len(lote.NFes))
 	}
 
-	// Monta o XML do lote
+	// Monta o XML do lote (cada NF-e sem a declaração <?xml ?> — não pode
+	// haver uma segunda declaração no meio do envelope SOAP)
 	nfesXML := ""
 	for _, nfe := range lote.NFes {
-		nfesXML += string(nfe)
+		nfesXML += string(removerDeclaracaoXML(nfe))
 	}
 
 	indSinc := lote.IndSinc
@@ -275,7 +276,7 @@ func montarNFeProc(nfeAssinada []byte, p ProtNFe) []byte {
 			`<nfeProc versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">`+
 			`%s%s`+
 			`</nfeProc>`,
-		string(nfeAssinada), prot,
+		string(removerDeclaracaoXML(nfeAssinada)), prot,
 	))
 }
 

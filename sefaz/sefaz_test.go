@@ -387,3 +387,55 @@ func TestTipoDocDFeConstantes(t *testing.T) {
 		t.Errorf("DocResNFe = %q", sefaz.DocResNFe)
 	}
 }
+
+// ── EnviarLote: sem declaração XML duplicada ─────────────────────────────────
+
+// capturaTransport grava o corpo da requisição enviada e responde com um
+// lote recebido (cStat 103), sem exigir polling de ConsultarLote.
+type capturaTransport struct {
+	corpoEnviado []byte
+}
+
+func (c *capturaTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	b, _ := io.ReadAll(r.Body)
+	c.corpoEnviado = b
+	resp := `<?xml version="1.0" encoding="UTF-8"?>` +
+		`<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">` +
+		`<soap12:Body><nfeAutorizacaoLoteResult>` +
+		`<retEnviNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">` +
+		`<tpAmb>2</tpAmb><verAplic>SVRS</verAplic><cStat>103</cStat>` +
+		`<xMotivo>Lote recebido com sucesso</xMotivo>` +
+		`<dhRecbto>2026-07-08T12:00:00-03:00</dhRecbto><nRec>123456789012345</nRec>` +
+		`</retEnviNFe></nfeAutorizacaoLoteResult></soap12:Body></soap12:Envelope>`
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(resp)),
+		Header:     make(http.Header),
+	}, nil
+}
+
+// TestEnviarLote_SemDeclaracaoXMLDuplicada reproduz o bug em que uma NF-e
+// assinada (que já carrega seu próprio <?xml ?> vindo do builder) era
+// concatenada dentro do envelope SOAP sem remover essa declaração — a SEFAZ
+// rejeita com "Illegal processing instruction target" por haver uma segunda
+// declaração XML no meio do documento.
+func TestEnviarLote_SemDeclaracaoXMLDuplicada(t *testing.T) {
+	mock := &capturaTransport{}
+	cl := sefaz.NovoClienteTransporte("52", sefaz.Homologacao, mock)
+
+	nfeAssinada := []byte(`<?xml version="1.0" encoding="UTF-8"?>` +
+		`<NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe Id="NFe123"></infNFe></NFe>`)
+
+	_, err := cl.EnviarLote(context.Background(), sefaz.LoteNFe{
+		IDLote: "1",
+		NFes:   [][]byte{nfeAssinada},
+	})
+	if err != nil {
+		t.Fatalf("EnviarLote retornou erro inesperado: %v", err)
+	}
+
+	if n := strings.Count(string(mock.corpoEnviado), "<?xml"); n != 1 {
+		t.Errorf("esperava exatamente 1 declaração <?xml no envelope SOAP enviado, achou %d\ncorpo: %s",
+			n, mock.corpoEnviado)
+	}
+}
