@@ -439,3 +439,51 @@ func TestEnviarLote_SemDeclaracaoXMLDuplicada(t *testing.T) {
 			n, mock.corpoEnviado)
 	}
 }
+
+// mockSincronoTransport simula a resposta síncrona da SEFAZ (indSinc=1,
+// lote de 1 NF-e): cStat=104 com o protNFe já embutido em retEnviNFe,
+// sem nRec — não há lote assíncrono a consultar depois.
+type mockSincronoTransport struct{ chave string }
+
+func (m *mockSincronoTransport) RoundTrip(_ *http.Request) (*http.Response, error) {
+	body := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">`+
+		`<soap12:Body><nfeAutorizacaoLoteResult>`+
+		`<retEnviNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">`+
+		`<tpAmb>2</tpAmb><verAplic>SVRS</verAplic><cStat>104</cStat><xMotivo>Lote processado</xMotivo>`+
+		`<protNFe versao="4.00"><infProt>`+
+		`<tpAmb>2</tpAmb><chNFe>%s</chNFe><dhRecbto>2026-07-09T10:00:00-03:00</dhRecbto>`+
+		`<nProt>152260000000001</nProt><digVal>abc123</digVal><cStat>100</cStat><xMotivo>Autorizado o uso da NF-e</xMotivo>`+
+		`</infProt></protNFe>`+
+		`</retEnviNFe></nfeAutorizacaoLoteResult></soap12:Body></soap12:Envelope>`, m.chave)
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+	}, nil
+}
+
+// TestAutorizar_Sincrono_ProtocoloEmbutido reproduz o bug em que Autorizar
+// ignorava o protNFe já retornado no envio síncrono (cStat=104, lote de 1
+// NF-e) e tentava consultar um lote assíncrono inexistente via
+// ConsultarLote, falhando com "chave ... não encontrada no retorno do lote"
+// mesmo com a NF-e já autorizada pela SEFAZ.
+func TestAutorizar_Sincrono_ProtocoloEmbutido(t *testing.T) {
+	chave := strings.Repeat("5", 44)
+	mock := &mockSincronoTransport{chave: chave}
+	cl := sefaz.NovoClienteTransporte("52", sefaz.Homologacao, mock)
+
+	nfeAssinada := []byte(`<?xml version="1.0" encoding="UTF-8"?>` +
+		`<NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe Id="NFe` + chave + `"></infNFe></NFe>`)
+
+	resultado, err := cl.Autorizar(context.Background(), nfeAssinada, chave)
+	if err != nil {
+		t.Fatalf("Autorizar retornou erro inesperado: %v", err)
+	}
+	if !resultado.Autorizada {
+		t.Fatalf("esperava Autorizada=true, cStat do protocolo=%s", resultado.Protocolo.CStat)
+	}
+	if resultado.Protocolo.NProt != "152260000000001" {
+		t.Errorf("nProt = %q, want %q", resultado.Protocolo.NProt, "152260000000001")
+	}
+}

@@ -22,8 +22,9 @@ type LoteNFe struct {
 // RetornoEnvioLote é o retorno do NFeAutorizacao (envio de lote).
 type RetornoEnvioLote struct {
 	RetornoSEFAZ
-	DhRecbto string `xml:"dhRecbto"` // data/hora recebimento
-	NRec     string `xml:"nRec"`     // número do recibo (usar em NFeRetAutorizacao)
+	DhRecbto string   `xml:"dhRecbto"` // data/hora recebimento
+	NRec     string   `xml:"nRec"`     // número do recibo (usar em NFeRetAutorizacao) — só em modo assíncrono
+	ProtNFe  *ProtNFe // protocolo já autorizado — presente quando o envio foi síncrono (indSinc=1)
 }
 
 // EnviarLote envia um lote de NF-e assinadas para autorização.
@@ -76,10 +77,23 @@ func (cl *Cliente) EnviarLote(ctx context.Context, lote LoteNFe) (*RetornoEnvioL
 	}
 
 	// Estrutura real: <nfeAutorizacaoLoteResult><retEnviNFe ...>...</retEnviNFe></nfeAutorizacaoLoteResult>
+	// Em modo síncrono (indSinc=1), o protNFe já vem embutido aqui — não há
+	// lote assíncrono pra consultar depois com NFeRetAutorizacao.
+	type xmlProt struct {
+		InfProt struct {
+			ChNFe    string `xml:"chNFe"`
+			DhRecbto string `xml:"dhRecbto"`
+			NProt    string `xml:"nProt"`
+			DigVal   string `xml:"digVal"`
+			CStat    string `xml:"cStat"`
+			XMotivo  string `xml:"xMotivo"`
+		} `xml:"infProt"`
+	}
 	type xmlRetEnvi struct {
 		RetornoSEFAZ
-		DhRecbto string `xml:"dhRecbto"`
-		NRec     string `xml:"nRec"`
+		DhRecbto string    `xml:"dhRecbto"`
+		NRec     string    `xml:"nRec"`
+		ProtNFe  []xmlProt `xml:"protNFe"`
 	}
 	type xmlResult struct {
 		Ret xmlRetEnvi `xml:"retEnviNFe"`
@@ -90,11 +104,19 @@ func (cl *Cliente) EnviarLote(ctx context.Context, lote LoteNFe) (*RetornoEnvioL
 	}
 
 	ret := result.Ret
-	return &RetornoEnvioLote{
+	out := &RetornoEnvioLote{
 		RetornoSEFAZ: ret.RetornoSEFAZ,
 		DhRecbto:     ret.DhRecbto,
 		NRec:         ret.NRec,
-	}, nil
+	}
+	if len(ret.ProtNFe) > 0 {
+		p := ret.ProtNFe[0].InfProt
+		out.ProtNFe = &ProtNFe{
+			ChNFe: p.ChNFe, DhRecbto: p.DhRecbto, NProt: p.NProt,
+			DigVal: p.DigVal, CStat: p.CStat, XMotivo: p.XMotivo,
+		}
+	}
+	return out, nil
 }
 
 // ── Consulta de lote (NFeRetAutorizacao) ─────────────────────────────────────
@@ -206,13 +228,26 @@ func (cl *Cliente) Autorizar(ctx context.Context, nfeAssinada []byte, chave stri
 		return nil, err
 	}
 
-	// cStat 103 = lote recebido, aguardar processamento
-	// cStat 104 = lote processado (modo síncrono ou quando já havia resultado)
+	// cStat 103 = lote recebido, aguardar processamento (assíncrono)
+	// cStat 104 = lote processado — em envio síncrono (1 NF-e) o protocolo já
+	// vem embutido em ret.ProtNFe, sem precisar consultar o lote depois.
 	if ret.CStat != "103" && ret.CStat != "104" {
 		return nil, fmt.Errorf("sefaz: envio recusado cStat=%s: %s", ret.CStat, ret.XMotivo)
 	}
 
-	// Consulta com retry
+	if ret.CStat == "104" && ret.ProtNFe != nil {
+		p := *ret.ProtNFe
+		resultado := &ResultadoAutorizacao{
+			Autorizada: p.CStat == "100",
+			Protocolo:  p,
+		}
+		if resultado.Autorizada {
+			resultado.XMLProtocolado = montarNFeProc(nfeAssinada, p)
+		}
+		return resultado, nil
+	}
+
+	// Consulta com retry (modo assíncrono, cStat=103)
 	const maxTentativas = 10
 	intervalo := 2 * time.Second
 
