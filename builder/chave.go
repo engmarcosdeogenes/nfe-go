@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -67,6 +68,18 @@ func (c ChaveAcesso) String() string {
 // ID retorna o atributo Id do infNFe: "NFe" + chave44.
 func (c ChaveAcesso) ID() string {
 	return "NFe" + c.String()
+}
+
+// semZerosEsquerda remove os zeros à esquerda usados no zero-padding interno
+// da chave de acesso (serie/nNF). Os elementos <serie> e <nNF> do XML da NF-e
+// não podem ter zero à esquerda (schema: "0|[1-9][0-9]{0,2}" e similar para
+// nNF) — só a chave de 44 dígitos exige os campos com largura fixa.
+func semZerosEsquerda(s string) string {
+	t := strings.TrimLeft(s, "0")
+	if t == "" {
+		return "0"
+	}
+	return t
 }
 
 // gerarCNF gera o código numérico aleatório (cNF) da chave usando crypto/rand.

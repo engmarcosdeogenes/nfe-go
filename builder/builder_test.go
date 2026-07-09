@@ -812,6 +812,38 @@ func TestNFCe_Builder_CNPJDestRejeitado(t *testing.T) {
 	t.Logf("Erro esperado: %v", err)
 }
 
+// TestSerieNNF_SemZeroEsquerda reproduz o bug em que <serie> saía com o
+// zero-padding de 3 dígitos usado internamente na chave de acesso (ex: "001"),
+// violando o schema da SEFAZ (pattern "0|[1-9][0-9]{0,2}", sem zero à
+// esquerda) — confirmado com xmllint contra o XSD oficial NF-e 4.00, cStat
+// 225 "Falha no Schema XML". <nNF> já tinha o tratamento; <serie> não.
+func TestSerieNNF_SemZeroEsquerda(t *testing.T) {
+	e := entradaExemplo() // Serie: "1", NNF: "42"
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	var nfe struct {
+		InfNFe struct {
+			Ide struct {
+				Serie string `xml:"serie"`
+				NNF   string `xml:"nNF"`
+			} `xml:"ide"`
+		} `xml:"infNFe"`
+	}
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if nfe.InfNFe.Ide.Serie != "1" {
+		t.Errorf("serie = %q, want %q (sem zero à esquerda)", nfe.InfNFe.Ide.Serie, "1")
+	}
+	if nfe.InfNFe.Ide.NNF != "42" {
+		t.Errorf("nNF = %q, want %q (sem zero à esquerda)", nfe.InfNFe.Ide.NNF, "42")
+	}
+}
+
 func TestChaveAcesso_DoisBuildsMesmaEntrada_ChavesDiferentes(t *testing.T) {
 	// cNF é gerado com crypto/rand — dois builds da mesma entrada devem
 	// produzir chaves diferentes (evitar colisão por previsibilidade)
