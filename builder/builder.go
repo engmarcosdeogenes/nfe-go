@@ -130,6 +130,7 @@ type EntradaFrete struct {
 
 type EntradaPagamento struct {
 	Forma  string  // "01"=dinheiro "15"=boleto "99"=outros
+	XPag   string  // obrigatório quando Forma="99" (descrição do meio de pagamento)
 	Valor  float64
 	APrazo bool
 }
@@ -512,9 +513,14 @@ func montarPagamento(ps []EntradaPagamento) Pagamento {
 		if p.APrazo {
 			indPag = "1"
 		}
+		xPag := p.XPag
+		if p.Forma == "99" && xPag == "" {
+			xPag = "Outros" // xPag é obrigatório quando tPag=99
+		}
 		pag.DetPag = append(pag.DetPag, DetalhePag{
 			IndPag: indPag,
 			TPag:   p.Forma,
+			XPag:   xPag,
 			VPag:   fmtVal(p.Valor),
 		})
 	}

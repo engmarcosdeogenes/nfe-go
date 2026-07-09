@@ -460,6 +460,7 @@ type DetalhePag struct {
 	// 01=dinheiro, 02=cheque, 03=cartão crédito, 04=cartão débito,
 	// 05=crédito loja, 10=vale alimentação, 11=vale refeição,
 	// 12=vale presente, 13=vale combustível, 15=boleto, 90=sem pagamento, 99=outros
+	XPag string `xml:"xPag,omitempty"` // obrigatório quando tPag=99
 	VPag string `xml:"vPag"`
 }
 
