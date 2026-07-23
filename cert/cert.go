@@ -17,7 +17,8 @@ import (
 type Certificado struct {
 	Chave   *rsa.PrivateKey
 	Cert    *x509.Certificate
-	CertDER []byte // bytes DER do certificado (usado na assinatura XML)
+	CertDER []byte              // bytes DER do certificado (usado na assinatura XML)
+	CaCerts []*x509.Certificate // cadeia intermediária embutida no PFX, se houver (ver DecodeChain)
 }
 
 // CarregarPFX lê um arquivo .pfx e extrai a chave + certificado.
@@ -32,8 +33,13 @@ func CarregarPFX(caminho, senha string) (*Certificado, error) {
 
 // CarregarPFXBytes faz o mesmo a partir de []byte (útil quando o .pfx
 // vem de banco de dados ou variável de ambiente).
+//
+// Usa DecodeChain (não Decode) porque certificados A1 reais emitidos por AC
+// brasileira normalmente embutem a cadeia intermediária no PFX além do
+// certificado folha — Decode exige exatamente 2 safe bags (cert+chave) e
+// falha com "expected exactly two safe bags" em qualquer PFX com cadeia.
 func CarregarPFXBytes(dados []byte, senha string) (*Certificado, error) {
-	chavePriv, cert, err := pkcs12.Decode(dados, senha)
+	chavePriv, cert, caCerts, err := pkcs12.DecodeChain(dados, senha)
 	if err != nil {
 		return nil, fmt.Errorf("cert: decodificação PKCS12: %w", err)
 	}
@@ -47,14 +53,22 @@ func CarregarPFXBytes(dados []byte, senha string) (*Certificado, error) {
 		Chave:   rsakey,
 		Cert:    cert,
 		CertDER: cert.Raw,
+		CaCerts: caCerts,
 	}, nil
 }
 
 // TLSConfig retorna um *tls.Config com autenticação mútua pronto para
-// as chamadas SOAP à SEFAZ.
+// as chamadas SOAP à SEFAZ. Envia a cadeia intermediária (CaCerts) junto do
+// certificado folha quando o PFX a incluir — servidores com validação mTLS
+// estrita podem rejeitar o handshake sem a cadeia completa.
 func (c *Certificado) TLSConfig() *tls.Config {
+	chain := make([][]byte, 0, 1+len(c.CaCerts))
+	chain = append(chain, c.CertDER)
+	for _, ca := range c.CaCerts {
+		chain = append(chain, ca.Raw)
+	}
 	tlsCert := tls.Certificate{
-		Certificate: [][]byte{c.CertDER},
+		Certificate: chain,
 		PrivateKey:  c.Chave,
 		Leaf:        c.Cert,
 	}
