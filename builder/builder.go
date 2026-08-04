@@ -15,14 +15,14 @@ import (
 
 type EntradaNFe struct {
 	// Identificação
-	Serie   string    // ex: "1"
-	NNF     string    // número da nota ex: "42"
-	DhEmi   time.Time // data/hora de emissão
-	NatOp   string    // "VENDA DE MERCADORIA"
-	TpAmb   string    // "1"=produção "2"=homologação
-	FinNFe  string    // "1"=normal
-	IndFinal string   // "1"=consumidor final
-	IndPres  string   // "1"=presencial
+	Serie    string    // ex: "1"
+	NNF      string    // número da nota ex: "42"
+	DhEmi    time.Time // data/hora de emissão
+	NatOp    string    // "VENDA DE MERCADORIA"
+	TpAmb    string    // "1"=produção "2"=homologação
+	FinNFe   string    // "1"=normal
+	IndFinal string    // "1"=consumidor final
+	IndPres  string    // "1"=presencial
 
 	// Modo de emissão — padrão "1" (normal). Use "5" para FS-DA (contingência offline).
 	TpEmis string // "1"=normal "5"=FS-DA
@@ -37,7 +37,6 @@ type EntradaNFe struct {
 	CSCId           string // identificador do CSC com zeros à esquerda (ex: "000001")
 	UrlConsultaNFCe string // URL base da SEFAZ estadual (ex: "https://www.sefaz.go.gov.br/...")
 
-
 	// Referência à NF-e original — obrigatório quando FinNFe="2" (complementar) ou "4" (devolução)
 	ChaveNFeRef string // chave de acesso 44 dígitos da NF-e referenciada
 
@@ -47,53 +46,61 @@ type EntradaNFe struct {
 	Frete     EntradaFrete
 	Pagamento []EntradaPagamento
 	InfCpl    string // informações complementares
+
+	// RespTec — responsável técnico pelo sistema emissor (NT 2015/002).
+	// Opcional no schema, mas algumas SEFAZ tratam como obrigatório na
+	// prática. Preencher todos os 4 campos ou nenhum.
+	RespTecCNPJ    string
+	RespTecContato string
+	RespTecEmail   string
+	RespTecFone    string
 }
 
 type EntradaEmitente struct {
-	CNPJ   string
-	Nome   string
+	CNPJ     string
+	Nome     string
 	Fantasia string
-	IE     string
-	CRT    string // "1", "2" ou "3"
-	End    EntradaEndereco
+	IE       string
+	CRT      string // "1", "2" ou "3"
+	End      EntradaEndereco
 }
 
 type EntradaDest struct {
-	CNPJ   string // preencher CNPJ ou CPF
-	CPF    string
-	Nome   string
-	IE     string
+	CNPJ      string // preencher CNPJ ou CPF
+	CPF       string
+	Nome      string
+	IE        string
 	IndIEDest string // "1", "2" ou "9"
-	Email  string
-	End    EntradaEndereco
+	Email     string
+	End       EntradaEndereco
 }
 
 type EntradaEndereco struct {
-	Logradouro string
-	Numero     string
+	Logradouro  string
+	Numero      string
 	Complemento string
-	Bairro     string
-	CodigoMun  string // código IBGE 7 dígitos
-	Municipio  string
-	UF         string
-	CEP        string
-	Pais       string // "1058" = Brasil
-	NomePais   string // "Brasil"
-	Fone       string
+	Bairro      string
+	CodigoMun   string // código IBGE 7 dígitos
+	Municipio   string
+	UF          string
+	CEP         string
+	Pais        string // "1058" = Brasil
+	NomePais    string // "Brasil"
+	Fone        string
 }
 
 type EntradaItem struct {
-	CProd      string  // código interno do produto
-	CEAN       string  // código de barras EAN-13 (ou "SEM GTIN")
+	CProd      string // código interno do produto
+	CEAN       string // código de barras EAN-13 (ou "SEM GTIN")
 	Nome       string
-	NCM        string  // ex: "73089090" para estruturas metálicas
-	CFOP       string  // ex: "5102"
-	Unidade    string  // "UN", "KG", "M2", etc.
+	NCM        string // ex: "73089090" para estruturas metálicas
+	CFOP       string // ex: "5102"
+	Unidade    string // "UN", "KG", "M2", etc.
 	Quantidade float64
 	VUnitario  float64
 	VDesconto  float64
 	ICMS       EntradaICMS
-	IPI        *EntradaIPI  // nil = sem IPI
+	IPI        *EntradaIPI // nil = sem IPI
 }
 
 type EntradaICMS struct {
@@ -103,7 +110,7 @@ type EntradaICMS struct {
 	PRedBC float64 // % redução de BC (ICMS20)
 	Aliq   float64 // alíquota %
 	// Simples Nacional
-	CSOSN  string  // "102", "400", "500", etc.
+	CSOSN string // "102", "400", "500", etc.
 	// ST prospectivo (CST 10)
 	ModBCST string
 	PMVAST  float64
@@ -118,8 +125,8 @@ type EntradaICMS struct {
 }
 
 type EntradaIPI struct {
-	CEnq string  // código de enquadramento
-	CST  string  // "50"=tributado por alíq, "99"=outros
+	CEnq string // código de enquadramento
+	CST  string // "50"=tributado por alíq, "99"=outros
 	Aliq float64
 }
 
@@ -129,8 +136,8 @@ type EntradaFrete struct {
 }
 
 type EntradaPagamento struct {
-	Forma  string  // "01"=dinheiro "15"=boleto "99"=outros
-	XPag   string  // obrigatório quando Forma="99" (descrição do meio de pagamento)
+	Forma  string // "01"=dinheiro "15"=boleto "99"=outros
+	XPag   string // obrigatório quando Forma="99" (descrição do meio de pagamento)
 	Valor  float64
 	APrazo bool
 }
@@ -244,19 +251,30 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 				XJust:    e.XJust,
 				NFref:    nfref,
 			},
-			Emit: montarEmitente(e.Emitente),
-			Dest: dest,
-			Det:  detalhes,
+			Emit:  montarEmitente(e.Emitente),
+			Dest:  dest,
+			Det:   detalhes,
 			Total: Total{ICMSTot: totais},
 			Transp: Transporte{
 				ModFrete: e.Frete.Modalidade,
 			},
-			Pag:    montarPagamento(e.Pagamento),
+			Pag: montarPagamento(e.Pagamento),
 			InfAdic: func() *InfAdic {
 				if e.InfCpl == "" {
 					return nil
 				}
 				return &InfAdic{InfCpl: e.InfCpl}
+			}(),
+			InfRespTec: func() *InfRespTec {
+				if e.RespTecCNPJ == "" {
+					return nil
+				}
+				return &InfRespTec{
+					CNPJ:     e.RespTecCNPJ,
+					XContato: e.RespTecContato,
+					Email:    e.RespTecEmail,
+					Fone:     e.RespTecFone,
+				}
 			}(),
 		},
 	}
@@ -498,7 +516,7 @@ func montarImposto(item EntradaItem, crt string) Imposto {
 	if item.IPI != nil {
 		vIPI := vProd * item.IPI.Aliq / 100
 		imp.IPI = &IPI{
-			CEnq: item.IPI.CEnq,
+			CEnq:    item.IPI.CEnq,
 			IPITrib: &IPITrib{CST: item.IPI.CST, VBC: fmtVal(vProd), PIPI: fmtVal(item.IPI.Aliq), VIPI: fmtVal(vIPI)},
 		}
 	}

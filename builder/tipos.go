@@ -4,9 +4,9 @@ package builder
 import "encoding/xml"
 
 const (
-	NsNFe    = "http://www.portalfiscal.inf.br/nfe"
-	VersaoNFe = "4.00"
-	ModeloNFe = "55"  // NF-e
+	NsNFe      = "http://www.portalfiscal.inf.br/nfe"
+	VersaoNFe  = "4.00"
+	ModeloNFe  = "55" // NF-e
 	ModeloNFCe = "65" // NFC-e
 )
 
@@ -32,44 +32,55 @@ type InfNFe struct {
 	Id     string `xml:"Id,attr"`
 	Versao string `xml:"versao,attr"`
 
-	Ide      Ide          `xml:"ide"`
-	Emit     Emitente     `xml:"emit"`
-	Dest     *Destinatario `xml:"dest,omitempty"`
-	Det      []Detalhe    `xml:"det"`
-	Total    Total     `xml:"total"`
-	Transp   Transporte `xml:"transp"`
-	Cobr     *Cobranca  `xml:"cobr,omitempty"`
-	Pag      Pagamento  `xml:"pag"`
-	InfAdic  *InfAdic   `xml:"infAdic,omitempty"`
+	Ide        Ide           `xml:"ide"`
+	Emit       Emitente      `xml:"emit"`
+	Dest       *Destinatario `xml:"dest,omitempty"`
+	Det        []Detalhe     `xml:"det"`
+	Total      Total         `xml:"total"`
+	Transp     Transporte    `xml:"transp"`
+	Cobr       *Cobranca     `xml:"cobr,omitempty"`
+	Pag        Pagamento     `xml:"pag"`
+	InfAdic    *InfAdic      `xml:"infAdic,omitempty"`
+	InfRespTec *InfRespTec   `xml:"infRespTec,omitempty"`
+}
+
+// InfRespTec identifica o responsável técnico pelo sistema emissor —
+// grupo opcional no schema (NT 2015/002), mas algumas SEFAZ estaduais
+// tratam como obrigatório na prática (regra de negócio, não XSD).
+type InfRespTec struct {
+	CNPJ     string `xml:"CNPJ"`
+	XContato string `xml:"xContato"`
+	Email    string `xml:"email"`
+	Fone     string `xml:"fone"`
 }
 
 // ── Identificação ─────────────────────────────────────────────────────────────
 
 type Ide struct {
-	CUF      string `xml:"cUF"`      // código IBGE do estado emitente
-	CNF      string `xml:"cNF"`      // 8 dígitos aleatórios
-	NatOp    string `xml:"natOp"`    // natureza da operação
-	Mod      string `xml:"mod"`      // 55=NF-e, 65=NFC-e
-	Serie    string `xml:"serie"`    // série (000-889)
-	NNF      string `xml:"nNF"`      // número da nota (1-999999999)
-	DhEmi    string `xml:"dhEmi"`    // data/hora emissão ISO8601
-	DhSaiEnt string `xml:"dhSaiEnt,omitempty"` // data/hora saída/entrada
-	TpNF     string `xml:"tpNF"`     // 0=entrada, 1=saída
-	IdDest   string `xml:"idDest"`   // 1=interna, 2=interestadual, 3=exterior
-	CMunFG   string `xml:"cMunFG"`   // código IBGE do município fato gerador
-	TpImp    string `xml:"tpImp"`    // 1=DANFE retrato, 2=paisagem, 5=NFC-e
-	TpEmis   string `xml:"tpEmis"`   // 1=normal, 3=contingência SCAN, etc.
-	CDV      string `xml:"cDV"`      // dígito verificador da chave de acesso
-	TpAmb    string `xml:"tpAmb"`    // 1=produção, 2=homologação
-	FinNFe   string `xml:"finNFe"`   // 1=normal, 2=complementar, 3=ajuste, 4=devolução
-	IndFinal string `xml:"indFinal"` // 0=não consumidor final, 1=consumidor final
-	IndPres  string `xml:"indPres"`  // 1=presencial, 2=internet, 9=outros
-	IndIntermed string `xml:"indIntermed,omitempty"` // 0=sem intermediador, 1=com
-	ProcEmi  string   `xml:"procEmi"`              // 0=aplicativo contrib.
-	VerProc  string   `xml:"verProc"`              // versão do processo de emissão
-	DhCont   string   `xml:"dhCont,omitempty"`     // data/hora entrada contingência (tpEmis≠1)
-	XJust    string   `xml:"xJust,omitempty"`      // justificativa contingência ≥15 chars
-	NFref    []NFref  `xml:"NFref,omitempty"`      // chaves das NF-e referenciadas (finNFe 2/4)
+	CUF         string  `xml:"cUF"`                   // código IBGE do estado emitente
+	CNF         string  `xml:"cNF"`                   // 8 dígitos aleatórios
+	NatOp       string  `xml:"natOp"`                 // natureza da operação
+	Mod         string  `xml:"mod"`                   // 55=NF-e, 65=NFC-e
+	Serie       string  `xml:"serie"`                 // série (000-889)
+	NNF         string  `xml:"nNF"`                   // número da nota (1-999999999)
+	DhEmi       string  `xml:"dhEmi"`                 // data/hora emissão ISO8601
+	DhSaiEnt    string  `xml:"dhSaiEnt,omitempty"`    // data/hora saída/entrada
+	TpNF        string  `xml:"tpNF"`                  // 0=entrada, 1=saída
+	IdDest      string  `xml:"idDest"`                // 1=interna, 2=interestadual, 3=exterior
+	CMunFG      string  `xml:"cMunFG"`                // código IBGE do município fato gerador
+	TpImp       string  `xml:"tpImp"`                 // 1=DANFE retrato, 2=paisagem, 5=NFC-e
+	TpEmis      string  `xml:"tpEmis"`                // 1=normal, 3=contingência SCAN, etc.
+	CDV         string  `xml:"cDV"`                   // dígito verificador da chave de acesso
+	TpAmb       string  `xml:"tpAmb"`                 // 1=produção, 2=homologação
+	FinNFe      string  `xml:"finNFe"`                // 1=normal, 2=complementar, 3=ajuste, 4=devolução
+	IndFinal    string  `xml:"indFinal"`              // 0=não consumidor final, 1=consumidor final
+	IndPres     string  `xml:"indPres"`               // 1=presencial, 2=internet, 9=outros
+	IndIntermed string  `xml:"indIntermed,omitempty"` // 0=sem intermediador, 1=com
+	ProcEmi     string  `xml:"procEmi"`               // 0=aplicativo contrib.
+	VerProc     string  `xml:"verProc"`               // versão do processo de emissão
+	DhCont      string  `xml:"dhCont,omitempty"`      // data/hora entrada contingência (tpEmis≠1)
+	XJust       string  `xml:"xJust,omitempty"`       // justificativa contingência ≥15 chars
+	NFref       []NFref `xml:"NFref,omitempty"`       // chaves das NF-e referenciadas (finNFe 2/4)
 }
 
 // NFref referencia a NF-e original em notas complementares (finNFe=2) e de devolução (finNFe=4).
@@ -80,13 +91,13 @@ type NFref struct {
 // ── Emitente ─────────────────────────────────────────────────────────────────
 
 type Emitente struct {
-	CNPJ      string         `xml:"CNPJ"`
-	XNome     string         `xml:"xNome"`
-	XFant     string         `xml:"xFant,omitempty"`
-	EnderEmit EnderecoEmit   `xml:"enderEmit"`
-	IE        string         `xml:"IE"` // obrigatório pelo schema (confirmado via xmllint contra nfe_v4.00.xsd)
-	IEST      string         `xml:"IEST,omitempty"`
-	CRT       string         `xml:"CRT"` // 1=Simples, 2=Simples Excesso, 3=Normal
+	CNPJ      string       `xml:"CNPJ"`
+	XNome     string       `xml:"xNome"`
+	XFant     string       `xml:"xFant,omitempty"`
+	EnderEmit EnderecoEmit `xml:"enderEmit"`
+	IE        string       `xml:"IE"` // obrigatório pelo schema (confirmado via xmllint contra nfe_v4.00.xsd)
+	IEST      string       `xml:"IEST,omitempty"`
+	CRT       string       `xml:"CRT"` // 1=Simples, 2=Simples Excesso, 3=Normal
 }
 
 type EnderecoEmit struct {
@@ -106,13 +117,13 @@ type EnderecoEmit struct {
 // ── Destinatário ─────────────────────────────────────────────────────────────
 
 type Destinatario struct {
-	CNPJ      string          `xml:"CNPJ,omitempty"`
-	CPF       string          `xml:"CPF,omitempty"`
-	XNome     string          `xml:"xNome"`
-	EnderDest EnderecoDest    `xml:"enderDest"`
-	IndIEDest string          `xml:"indIEDest"` // 1=contribuinte, 2=isento, 9=não contrib.
-	IE        string          `xml:"IE,omitempty"`
-	Email     string          `xml:"email,omitempty"`
+	CNPJ      string       `xml:"CNPJ,omitempty"`
+	CPF       string       `xml:"CPF,omitempty"`
+	XNome     string       `xml:"xNome"`
+	EnderDest EnderecoDest `xml:"enderDest"`
+	IndIEDest string       `xml:"indIEDest"` // 1=contribuinte, 2=isento, 9=não contrib.
+	IE        string       `xml:"IE,omitempty"`
+	Email     string       `xml:"email,omitempty"`
 }
 
 type EnderecoDest struct {
@@ -132,43 +143,43 @@ type EnderecoDest struct {
 // ── Detalhe (produto + impostos) ─────────────────────────────────────────────
 
 type Detalhe struct {
-	NItem   string   `xml:"nItem,attr"`
-	Prod    Produto  `xml:"prod"`
-	Imposto Imposto  `xml:"imposto"`
+	NItem   string  `xml:"nItem,attr"`
+	Prod    Produto `xml:"prod"`
+	Imposto Imposto `xml:"imposto"`
 }
 
 type Produto struct {
-	CProd      string `xml:"cProd"`
-	CEAN       string `xml:"cEAN"`       // "SEM GTIN" se não houver
-	XProd      string `xml:"xProd"`
-	NCM        string `xml:"NCM"`
-	CEST       string `xml:"CEST,omitempty"`
-	CFOP       string `xml:"CFOP"`
-	UCom       string `xml:"uCom"`
-	QCom       string `xml:"qCom"`
-	VUnCom     string `xml:"vUnCom"`
-	VProd      string `xml:"vProd"`
-	CEANTrib   string `xml:"cEANTrib"`   // "SEM GTIN" se não houver
-	UTrib      string `xml:"uTrib"`
-	QTrib      string `xml:"qTrib"`
-	VUnTrib    string `xml:"vUnTrib"`
-	VFrete     string `xml:"vFrete,omitempty"`
-	VSeg       string `xml:"vSeg,omitempty"`
-	VDesc      string `xml:"vDesc,omitempty"`
-	VOutro     string `xml:"vOutro,omitempty"`
-	IndTot     string `xml:"indTot"` // 1=compõe total da NF-e
-	XPed       string `xml:"xPed,omitempty"`
-	NItemPed   string `xml:"nItemPed,omitempty"`
+	CProd    string `xml:"cProd"`
+	CEAN     string `xml:"cEAN"` // "SEM GTIN" se não houver
+	XProd    string `xml:"xProd"`
+	NCM      string `xml:"NCM"`
+	CEST     string `xml:"CEST,omitempty"`
+	CFOP     string `xml:"CFOP"`
+	UCom     string `xml:"uCom"`
+	QCom     string `xml:"qCom"`
+	VUnCom   string `xml:"vUnCom"`
+	VProd    string `xml:"vProd"`
+	CEANTrib string `xml:"cEANTrib"` // "SEM GTIN" se não houver
+	UTrib    string `xml:"uTrib"`
+	QTrib    string `xml:"qTrib"`
+	VUnTrib  string `xml:"vUnTrib"`
+	VFrete   string `xml:"vFrete,omitempty"`
+	VSeg     string `xml:"vSeg,omitempty"`
+	VDesc    string `xml:"vDesc,omitempty"`
+	VOutro   string `xml:"vOutro,omitempty"`
+	IndTot   string `xml:"indTot"` // 1=compõe total da NF-e
+	XPed     string `xml:"xPed,omitempty"`
+	NItemPed string `xml:"nItemPed,omitempty"`
 }
 
 // ── Impostos ─────────────────────────────────────────────────────────────────
 
 type Imposto struct {
-	VTotTrib string    `xml:"vTotTrib,omitempty"`
-	ICMS     *ICMS     `xml:"ICMS,omitempty"`
-	IPI      *IPI      `xml:"IPI,omitempty"`
-	PIS      PIS       `xml:"PIS"`
-	COFINS   COFINS    `xml:"COFINS"`
+	VTotTrib string `xml:"vTotTrib,omitempty"`
+	ICMS     *ICMS  `xml:"ICMS,omitempty"`
+	IPI      *IPI   `xml:"IPI,omitempty"`
+	PIS      PIS    `xml:"PIS"`
+	COFINS   COFINS `xml:"COFINS"`
 }
 
 // ICMS — envelope que contém exatamente um dos grupos abaixo
@@ -189,67 +200,67 @@ type ICMS struct {
 
 // Regime Normal
 type ICMS00 struct {
-	Orig    string `xml:"orig"`
-	CST     string `xml:"CST"`     // 00=tributado integralmente
-	ModBC   string `xml:"modBC"`   // 3=valor da operação
-	VBC     string `xml:"vBC"`
-	PICMS   string `xml:"pICMS"`
-	VICMS   string `xml:"vICMS"`
+	Orig  string `xml:"orig"`
+	CST   string `xml:"CST"`   // 00=tributado integralmente
+	ModBC string `xml:"modBC"` // 3=valor da operação
+	VBC   string `xml:"vBC"`
+	PICMS string `xml:"pICMS"`
+	VICMS string `xml:"vICMS"`
 }
 
 type ICMS10 struct {
-	Orig     string `xml:"orig"`
-	CST      string `xml:"CST"`    // 10=tributado + ST
-	ModBC    string `xml:"modBC"`
-	VBC      string `xml:"vBC"`
-	PICMS    string `xml:"pICMS"`
-	VICMS    string `xml:"vICMS"`
-	ModBCST  string `xml:"modBCST"`
-	PMVAST   string `xml:"pMVAST"`
-	VBCST    string `xml:"vBCST"`
-	PICMSST  string `xml:"pICMSST"`
-	VICMSST  string `xml:"vICMSST"`
+	Orig    string `xml:"orig"`
+	CST     string `xml:"CST"` // 10=tributado + ST
+	ModBC   string `xml:"modBC"`
+	VBC     string `xml:"vBC"`
+	PICMS   string `xml:"pICMS"`
+	VICMS   string `xml:"vICMS"`
+	ModBCST string `xml:"modBCST"`
+	PMVAST  string `xml:"pMVAST"`
+	VBCST   string `xml:"vBCST"`
+	PICMSST string `xml:"pICMSST"`
+	VICMSST string `xml:"vICMSST"`
 }
 
 type ICMS20 struct {
-	Orig    string `xml:"orig"`
-	CST     string `xml:"CST"`    // 20=com redução de BC
-	ModBC   string `xml:"modBC"`
-	PRedBC  string `xml:"pRedBC"`
-	VBC     string `xml:"vBC"`
-	PICMS   string `xml:"pICMS"`
-	VICMS   string `xml:"vICMS"`
+	Orig   string `xml:"orig"`
+	CST    string `xml:"CST"` // 20=com redução de BC
+	ModBC  string `xml:"modBC"`
+	PRedBC string `xml:"pRedBC"`
+	VBC    string `xml:"vBC"`
+	PICMS  string `xml:"pICMS"`
+	VICMS  string `xml:"vICMS"`
 }
 
 type ICMS40 struct {
-	Orig    string `xml:"orig"`
-	CST     string `xml:"CST"`    // 40=isento, 41=não tributado, 50=suspensão
-	VICMSDeson  string `xml:"vICMSDeson,omitempty"`
-	MotDesICMS  string `xml:"motDesICMS,omitempty"`
+	Orig       string `xml:"orig"`
+	CST        string `xml:"CST"` // 40=isento, 41=não tributado, 50=suspensão
+	VICMSDeson string `xml:"vICMSDeson,omitempty"`
+	MotDesICMS string `xml:"motDesICMS,omitempty"`
 }
 
 type ICMS60 struct {
-	Orig        string `xml:"orig"`
-	CST         string `xml:"CST"`    // 60=cobrado por ST anteriormente
-	VBCSTRet    string `xml:"vBCSTRet"`
-	PSTRet      string `xml:"pSTRet"`
-	VICMSSTRet  string `xml:"vICMSSTRet"`
+	Orig       string `xml:"orig"`
+	CST        string `xml:"CST"` // 60=cobrado por ST anteriormente
+	VBCSTRet   string `xml:"vBCSTRet"`
+	PSTRet     string `xml:"pSTRet"`
+	VICMSSTRet string `xml:"vICMSSTRet"`
 }
 
 type ICMS90 struct {
-	Orig    string `xml:"orig"`
-	CST     string `xml:"CST"`    // 90=outros
-	ModBC   string `xml:"modBC"`
-	VBC     string `xml:"vBC"`
-	PICMS   string `xml:"pICMS"`
-	VICMS   string `xml:"vICMS"`
+	Orig  string `xml:"orig"`
+	CST   string `xml:"CST"` // 90=outros
+	ModBC string `xml:"modBC"`
+	VBC   string `xml:"vBC"`
+	PICMS string `xml:"pICMS"`
+	VICMS string `xml:"vICMS"`
 }
 
 // Simples Nacional
 type ICMSSN101 struct {
-	Orig       string `xml:"orig"`
-	CSOSN      string `xml:"CSOSN"`    // 101=permite crédito
-	PCredSN    string `xml:"pCredSN"`
+	Orig        string `xml:"orig"`
+	CSOSN       string `xml:"CSOSN"` // 101=permite crédito
+	PCredSN     string `xml:"pCredSN"`
 	VCredICMSSN string `xml:"vCredICMSSN"`
 }
 
@@ -259,20 +270,20 @@ type ICMSSN102 struct {
 }
 
 type ICMSSN201 struct {
-	Orig       string `xml:"orig"`
-	CSOSN      string `xml:"CSOSN"`   // 201=com ST + crédito SN
-	ModBCST    string `xml:"modBCST"`
-	PMVAST     string `xml:"pMVAST"`
-	VBCST      string `xml:"vBCST"`
-	PICMSST    string `xml:"pICMSST"`
-	VICMSST    string `xml:"vICMSST"`
-	PCredSN    string `xml:"pCredSN"`
+	Orig        string `xml:"orig"`
+	CSOSN       string `xml:"CSOSN"` // 201=com ST + crédito SN
+	ModBCST     string `xml:"modBCST"`
+	PMVAST      string `xml:"pMVAST"`
+	VBCST       string `xml:"vBCST"`
+	PICMSST     string `xml:"pICMSST"`
+	VICMSST     string `xml:"vICMSST"`
+	PCredSN     string `xml:"pCredSN"`
 	VCredICMSSN string `xml:"vCredICMSSN"`
 }
 
 type ICMSSN202 struct {
 	Orig    string `xml:"orig"`
-	CSOSN   string `xml:"CSOSN"`   // 202=com ST sem crédito
+	CSOSN   string `xml:"CSOSN"` // 202=com ST sem crédito
 	ModBCST string `xml:"modBCST"`
 	PMVAST  string `xml:"pMVAST"`
 	VBCST   string `xml:"vBCST"`
@@ -281,25 +292,25 @@ type ICMSSN202 struct {
 }
 
 type ICMSSN500 struct {
-	Orig        string `xml:"orig"`
-	CSOSN       string `xml:"CSOSN"`      // 500=ST anteriormente retido
-	VBCSTRet    string `xml:"vBCSTRet"`
-	PSTRet      string `xml:"pSTRet"`
-	VICMSSTRet  string `xml:"vICMSSTRet"`
+	Orig       string `xml:"orig"`
+	CSOSN      string `xml:"CSOSN"` // 500=ST anteriormente retido
+	VBCSTRet   string `xml:"vBCSTRet"`
+	PSTRet     string `xml:"pSTRet"`
+	VICMSSTRet string `xml:"vICMSSTRet"`
 }
 
 type ICMSSN900 struct {
-	Orig    string `xml:"orig"`
-	CSOSN   string `xml:"CSOSN"` // 900=outros SN
-	ModBC   string `xml:"modBC"`
-	VBC     string `xml:"vBC"`
-	PICMS   string `xml:"pICMS"`
-	VICMS   string `xml:"vICMS"`
+	Orig  string `xml:"orig"`
+	CSOSN string `xml:"CSOSN"` // 900=outros SN
+	ModBC string `xml:"modBC"`
+	VBC   string `xml:"vBC"`
+	PICMS string `xml:"pICMS"`
+	VICMS string `xml:"vICMS"`
 }
 
 // IPI
 type IPI struct {
-	CEnq    string   `xml:"cEnq"` // código de enquadramento legal
+	CEnq    string   `xml:"cEnq"`              // código de enquadramento legal
 	IPINT   *IPINT   `xml:"IPINT,omitempty"`   // não tributado
 	IPITrib *IPITrib `xml:"IPITrib,omitempty"` // tributado
 }
@@ -336,12 +347,12 @@ type PISNt struct {
 }
 
 type PISOutr struct {
-	CST  string `xml:"CST"`
-	VBC  string `xml:"vBC,omitempty"`
-	PPIS string `xml:"pPIS,omitempty"`
-	QBCPROD string `xml:"qBCProd,omitempty"`
+	CST       string `xml:"CST"`
+	VBC       string `xml:"vBC,omitempty"`
+	PPIS      string `xml:"pPIS,omitempty"`
+	QBCPROD   string `xml:"qBCProd,omitempty"`
 	VAliqProd string `xml:"vAliqProd,omitempty"`
-	VPIS string `xml:"vPIS"`
+	VPIS      string `xml:"vPIS"`
 }
 
 // COFINS — mesma estrutura do PIS
@@ -352,10 +363,10 @@ type COFINS struct {
 }
 
 type COFINSAliq struct {
-	CST      string `xml:"CST"`
-	VBC      string `xml:"vBC"`
-	PCOFINS  string `xml:"pCOFINS"`
-	VCOFINS  string `xml:"vCOFINS"`
+	CST     string `xml:"CST"`
+	VBC     string `xml:"vBC"`
+	PCOFINS string `xml:"pCOFINS"`
+	VCOFINS string `xml:"vCOFINS"`
 }
 
 type COFINSNt struct {
@@ -363,12 +374,12 @@ type COFINSNt struct {
 }
 
 type COFINSOutr struct {
-	CST      string `xml:"CST"`
-	VBC      string `xml:"vBC,omitempty"`
-	PCOFINS  string `xml:"pCOFINS,omitempty"`
-	QBCPROD  string `xml:"qBCProd,omitempty"`
+	CST       string `xml:"CST"`
+	VBC       string `xml:"vBC,omitempty"`
+	PCOFINS   string `xml:"pCOFINS,omitempty"`
+	QBCPROD   string `xml:"qBCProd,omitempty"`
 	VAliqProd string `xml:"vAliqProd,omitempty"`
-	VCOFINS  string `xml:"vCOFINS"`
+	VCOFINS   string `xml:"vCOFINS"`
 }
 
 // ── Total ─────────────────────────────────────────────────────────────────────
@@ -378,34 +389,34 @@ type Total struct {
 }
 
 type ICMSTot struct {
-	VBC      string `xml:"vBC"`
-	VICMS    string `xml:"vICMS"`
+	VBC        string `xml:"vBC"`
+	VICMS      string `xml:"vICMS"`
 	VICMSDeson string `xml:"vICMSDeson"`
-	VFCP     string `xml:"vFCP"`
-	VBCST    string `xml:"vBCST"`
-	VST      string `xml:"vST"`
-	VFCPST   string `xml:"vFCPST"`
-	VFCPSTRet string `xml:"vFCPSTRet"`
-	VProd    string `xml:"vProd"`
-	VFrete   string `xml:"vFrete"`
-	VSeg     string `xml:"vSeg"`
-	VDesc    string `xml:"vDesc"`
-	VII      string `xml:"vII"`
-	VIPI     string `xml:"vIPI"`
-	VIPIDevol string `xml:"vIPIDevol"`
-	VPIS     string `xml:"vPIS"`
-	VCOFINS  string `xml:"vCOFINS"`
-	VOutro   string `xml:"vOutro"`
-	VNF      string `xml:"vNF"`
-	VTotTrib string `xml:"vTotTrib"`
+	VFCP       string `xml:"vFCP"`
+	VBCST      string `xml:"vBCST"`
+	VST        string `xml:"vST"`
+	VFCPST     string `xml:"vFCPST"`
+	VFCPSTRet  string `xml:"vFCPSTRet"`
+	VProd      string `xml:"vProd"`
+	VFrete     string `xml:"vFrete"`
+	VSeg       string `xml:"vSeg"`
+	VDesc      string `xml:"vDesc"`
+	VII        string `xml:"vII"`
+	VIPI       string `xml:"vIPI"`
+	VIPIDevol  string `xml:"vIPIDevol"`
+	VPIS       string `xml:"vPIS"`
+	VCOFINS    string `xml:"vCOFINS"`
+	VOutro     string `xml:"vOutro"`
+	VNF        string `xml:"vNF"`
+	VTotTrib   string `xml:"vTotTrib"`
 }
 
 // ── Transporte ────────────────────────────────────────────────────────────────
 
 type Transporte struct {
-	ModFrete string    `xml:"modFrete"` // 0=CIF, 1=FOB, 2=terceiros, 9=sem frete
+	ModFrete string          `xml:"modFrete"` // 0=CIF, 1=FOB, 2=terceiros, 9=sem frete
 	Transp   *Transportadora `xml:"transporta,omitempty"`
-	Vol      []Volume  `xml:"vol,omitempty"`
+	Vol      []Volume        `xml:"vol,omitempty"`
 }
 
 type Transportadora struct {
@@ -419,18 +430,18 @@ type Transportadora struct {
 }
 
 type Volume struct {
-	QVol   string `xml:"qVol,omitempty"`
-	Esp    string `xml:"esp,omitempty"`
-	Marca  string `xml:"marca,omitempty"`
-	NVol   string `xml:"nVol,omitempty"`
-	PesoL  string `xml:"pesoL,omitempty"`
-	PesoB  string `xml:"pesoB,omitempty"`
+	QVol  string `xml:"qVol,omitempty"`
+	Esp   string `xml:"esp,omitempty"`
+	Marca string `xml:"marca,omitempty"`
+	NVol  string `xml:"nVol,omitempty"`
+	PesoL string `xml:"pesoL,omitempty"`
+	PesoB string `xml:"pesoB,omitempty"`
 }
 
 // ── Cobrança ─────────────────────────────────────────────────────────────────
 
 type Cobranca struct {
-	Fat *Fatura    `xml:"fat,omitempty"`
+	Fat *Fatura     `xml:"fat,omitempty"`
 	Dup []Duplicata `xml:"dup,omitempty"`
 }
 
