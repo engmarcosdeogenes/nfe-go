@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"regexp"
 	"time"
 
 	"software.sslmate.com/src/go-pkcs12"
@@ -79,10 +80,18 @@ func (c *Certificado) TLSConfig() *tls.Config {
 	}
 }
 
-// CNPJ extrai o CNPJ do Subject do certificado (campo SerialNumber).
-// Retorna string vazia se não encontrado.
+var cnpjNoCN = regexp.MustCompile(`(\d{14})$`)
+
+// CNPJ extrai o CNPJ do Subject do certificado. Tenta primeiro o campo
+// SerialNumber (padrão da maioria das ACs — Serasa, Certisign...). Algumas
+// ACs (ex: AC Solução Digital Múltipla) não preenchem SerialNumber e embutem
+// o CNPJ só no CN, no formato "RAZAO SOCIAL:CNPJ" — nesse caso cai pro CN.
+// Retorna string vazia se não encontrado em nenhum dos dois.
 func (c *Certificado) CNPJ() string {
-	return c.Cert.Subject.SerialNumber
+	if c.Cert.Subject.SerialNumber != "" {
+		return c.Cert.Subject.SerialNumber
+	}
+	return cnpjNoCN.FindString(c.Cert.Subject.CommonName)
 }
 
 // Valido retorna true se o certificado está dentro do prazo de validade.

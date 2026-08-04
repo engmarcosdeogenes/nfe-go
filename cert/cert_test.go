@@ -1,6 +1,8 @@
 package cert_test
 
 import (
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"os"
 	"strings"
 	"testing"
@@ -63,6 +65,32 @@ func TestCNPJ(t *testing.T) {
 	cnpj := c.CNPJ()
 	if cnpj != cnpjTeste {
 		t.Errorf("CNPJ() = %q, esperava %q", cnpj, cnpjTeste)
+	}
+}
+
+// TestCNPJ_FallbackParaCN cobre o caso real da AC Solução Digital Múltipla:
+// SerialNumber vazio, CNPJ só embutido no CN como "RAZAO SOCIAL:CNPJ".
+func TestCNPJ_FallbackParaCN(t *testing.T) {
+	c := &cert.Certificado{
+		Cert: &x509.Certificate{
+			Subject: pkix.Name{
+				CommonName: "ATUAR SISTEMAS E EQUIPAMENTOS CONTRA INCENDIO LTD:20666560000197",
+			},
+		},
+	}
+	if got := c.CNPJ(); got != "20666560000197" {
+		t.Errorf("CNPJ() = %q, esperava %q", got, "20666560000197")
+	}
+}
+
+func TestCNPJ_SemSerialNumberNemCNPJNoCN(t *testing.T) {
+	c := &cert.Certificado{
+		Cert: &x509.Certificate{
+			Subject: pkix.Name{CommonName: "SEM CNPJ NENHUM"},
+		},
+	}
+	if got := c.CNPJ(); got != "" {
+		t.Errorf("CNPJ() = %q, esperava vazio", got)
 	}
 }
 
