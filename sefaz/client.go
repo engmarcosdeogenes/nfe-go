@@ -96,10 +96,19 @@ func (cl *Cliente) chamar(ctx context.Context, srv Servico, soapBody string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("sefaz: criar request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/soap+xml; charset=utf-8")
+	contentType := "application/soap+xml; charset=utf-8"
 	if action, ok := soapAction[srv]; ok {
+		// SOAP 1.2 carrega a action como parâmetro do Content-Type, não no
+		// header SOAPAction (isso é convenção SOAP 1.1). Alguns dispatchers
+		// WCF/.NET (caso da SEFAZ-GO) dependem disso pra rotear pra operação
+		// certa; sem o parâmetro, cai num erro genérico não tratado no
+		// servidor (cStat=999 "Erro não catalogado"). Mantemos o header
+		// SOAPAction também, de graça, pra compatibilidade com servidores
+		// que ainda esperam o padrão SOAP 1.1.
+		contentType += `; action="` + action + `"`
 		req.Header.Set("SOAPAction", action)
 	}
+	req.Header.Set("Content-Type", contentType)
 
 	resp, err := cl.http.Do(req)
 	if err != nil {
