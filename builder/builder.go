@@ -372,11 +372,12 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, error) {
 	var detalhes []Detalhe
 	tot := ICMSTot{}
 	vProdTotal := 0.0
+	vDescTotal := 0.0
 
 	for i, item := range e.Itens {
 		vProd := item.Quantidade * item.VUnitario
-		vProdLiq := vProd - item.VDesconto
-		vProdTotal += vProdLiq
+		vProdTotal += vProd
+		vDescTotal += item.VDesconto
 
 		det := Detalhe{
 			NItem: fmt.Sprintf("%d", i+1),
@@ -400,10 +401,6 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, error) {
 			Imposto: montarImposto(item, e.Emitente.CRT),
 		}
 
-		if item.VDesconto > 0 {
-			v, _ := parseFloat(tot.VDesc)
-			tot.VDesc = fmtVal(v + item.VDesconto)
-		}
 		if e.Frete.VFrete > 0 && i == 0 {
 			det.Prod.VFrete = fmtVal(e.Frete.VFrete)
 		}
@@ -411,9 +408,12 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, error) {
 		detalhes = append(detalhes, det)
 	}
 
+	if vDescTotal > 0 {
+		tot.VDesc = fmtVal(vDescTotal)
+	}
 	tot.VProd = fmtVal(vProdTotal)
 	tot.VFrete = fmtVal(e.Frete.VFrete)
-	tot.VNF = fmtVal(vProdTotal + e.Frete.VFrete)
+	tot.VNF = fmtVal(vProdTotal + e.Frete.VFrete - vDescTotal)
 	tot.VBC = "0.00"
 	tot.VICMS = "0.00"
 	tot.VICMSDeson = "0.00"
@@ -605,13 +605,4 @@ func ceanOuSemGTIN(ean string) string {
 		return "SEM GTIN"
 	}
 	return ean
-}
-
-func parseFloat(s string) (float64, error) {
-	if s == "" {
-		return 0, nil
-	}
-	var f float64
-	_, err := fmt.Sscanf(s, "%f", &f)
-	return f, err
 }

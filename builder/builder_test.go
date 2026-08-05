@@ -137,6 +137,33 @@ func TestBuildGeraXMLValido(t *testing.T) {
 	t.Logf("XML (%d bytes):\n%s", len(xmlBytes), xmlBytes)
 }
 
+// TestTotaisComDesconto cobre bug real achado pelo Validador SVRS (regras 564/610):
+// ICMSTot.vProd tem que ser a soma bruta dos itens (sem descontar vDesconto),
+// já que o desconto entra separado em vDesc. vNF = vProd + vFrete - vDesc.
+func TestTotaisComDesconto(t *testing.T) {
+	entrada := entradaExemplo() // item1: 100*25.50=2550; item2: 50*18.00-50desc=850
+	xmlBytes, _, err := builder.Build(entrada)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	tot := nfe.InfNFe.Total.ICMSTot
+	if tot.VProd != "3450.00" {
+		t.Errorf("vProd = %q, esperava soma bruta dos itens 3450.00", tot.VProd)
+	}
+	if tot.VDesc != "50.00" {
+		t.Errorf("vDesc = %q, esperava 50.00", tot.VDesc)
+	}
+	if tot.VNF != "3400.00" {
+		t.Errorf("vNF = %q, esperava vProd+vFrete-vDesc = 3400.00", tot.VNF)
+	}
+}
+
 func TestChaveAcesso44Digitos(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		chave := builder.NovaChave("GO", "11222333000181", "1", "42", "1", "55", time.Now())
