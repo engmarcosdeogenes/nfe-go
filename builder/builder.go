@@ -100,7 +100,21 @@ type EntradaItem struct {
 	VUnitario  float64
 	VDesconto  float64
 	ICMS       EntradaICMS
-	IPI        *EntradaIPI // nil = sem IPI
+	IPI        *EntradaIPI    // nil = sem IPI
+	IBSCBS     *EntradaIBSCBS // nil = sem grupo IBS/CBS (obrigatório em homologação desde 01/07/2026 pra CRT=3)
+}
+
+// EntradaIBSCBS informa a tributação IBS/CBS do item (NT 2025.002-RTC).
+// CST e ClassTrib vêm da tabela oficial publicada em nfe.fazenda.gov.br >
+// Documentos > Diversos (Anexo III cClassTrib) -- não tem default seguro
+// aqui, quem chama informa. Alíquotas idem: variam por UF/Município/período
+// de transição, sem valor universal pra chutar.
+type EntradaIBSCBS struct {
+	CST        string
+	ClassTrib  string
+	AliqIBSUF  float64 // % de competência da UF
+	AliqIBSMun float64 // % de competência do Município
+	AliqCBS    float64 // %
 }
 
 type EntradaICMS struct {
@@ -175,7 +189,7 @@ func Build(e EntradaNFe) ([]byte, ChaveAcesso, error) {
 // ── Montagem ─────────────────────────────────────────────────────────────────
 
 func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
-	detalhes, totais, err := montarDetalhes(e)
+	detalhes, totais, ibscbsTot, err := montarDetalhes(e)
 	if err != nil {
 		return NFe{}, err
 	}
@@ -254,7 +268,7 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 			Emit:  montarEmitente(e.Emitente),
 			Dest:  dest,
 			Det:   detalhes,
-			Total: Total{ICMSTot: totais},
+			Total: Total{ICMSTot: totais, IBSCBSTot: ibscbsTot},
 			Transp: Transporte{
 				ModFrete: e.Frete.Modalidade,
 			},
@@ -368,7 +382,7 @@ func montarDest(d EntradaDest) Destinatario {
 	}
 }
 
-func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, error) {
+func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	var detalhes []Detalhe
 	tot := ICMSTot{}
 	vProdTotal := 0.0
@@ -377,6 +391,14 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, error) {
 	vICMSTotal := 0.0
 	vBCSTTotal := 0.0
 	vICMSSTTotal := 0.0
+	vPISTotal := 0.0
+	vCOFINSTotal := 0.0
+	vBCIBSCBSTotal := 0.0
+	vIBSUFTotal := 0.0
+	vIBSMunTotal := 0.0
+	vIBSTotal := 0.0
+	vCBSTotal := 0.0
+	temIBSCBS := false
 
 	for i, item := range e.Itens {
 		vProd := item.Quantidade * item.VUnitario
@@ -388,6 +410,16 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, error) {
 		vICMSTotal += totItem.vICMS
 		vBCSTTotal += totItem.vBCST
 		vICMSSTTotal += totItem.vICMSST
+		vPISTotal += totItem.vPIS
+		vCOFINSTotal += totItem.vCOFINS
+		if item.IBSCBS != nil {
+			temIBSCBS = true
+			vBCIBSCBSTotal += totItem.vBCIBSCBS
+			vIBSUFTotal += totItem.vIBSUF
+			vIBSMunTotal += totItem.vIBSMun
+			vIBSTotal += totItem.vIBS
+			vCBSTotal += totItem.vCBS
+		}
 
 		det := Detalhe{
 			NItem: fmt.Sprintf("%d", i+1),
@@ -436,22 +468,42 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, error) {
 	tot.VII = "0.00"
 	tot.VIPI = "0.00"
 	tot.VIPIDevol = "0.00"
-	tot.VPIS = "0.00"
-	tot.VCOFINS = "0.00"
+	tot.VPIS = fmtVal(vPISTotal)
+	tot.VCOFINS = fmtVal(vCOFINSTotal)
 	tot.VOutro = "0.00"
 	tot.VTotTrib = "0.00"
 	if tot.VDesc == "" {
 		tot.VDesc = "0.00"
 	}
 
-	return detalhes, tot, nil
+	var ibscbsTot *IBSCBSTot
+	if temIBSCBS {
+		ibscbsTot = &IBSCBSTot{
+			VBCIBSCBS: fmtVal(vBCIBSCBSTotal),
+			GIBS: GIBSTotal{
+				GIBSUF:           GIBSUFTotal{VDif: "0.00", VDevTrib: "0.00", VIBSUF: fmtVal(vIBSUFTotal)},
+				GIBSMun:          GIBSMunTotal{VDif: "0.00", VDevTrib: "0.00", VIBSMun: fmtVal(vIBSMunTotal)},
+				VIBS:             fmtVal(vIBSTotal),
+				VCredPres:        "0.00",
+				VCredPresCondSus: "0.00",
+			},
+			GCBS: GCBSTotalIBS{
+				VDif: "0.00", VDevTrib: "0.00", VCBS: fmtVal(vCBSTotal),
+				VCredPres: "0.00", VCredPresCondSus: "0.00",
+			},
+		}
+	}
+
+	return detalhes, tot, ibscbsTot, nil
 }
 
-// totaisItem carrega as parcelas de ICMS de um item que precisam ser somadas
-// no total da NF-e (ICMSTot) -- SEFAZ rejeita (regras 531/etc.) se o total
+// totaisItem carrega as parcelas de ICMS e IBS/CBS de um item que precisam
+// ser somadas no total da NF-e -- SEFAZ rejeita (regras 531/etc.) se o total
 // declarado não bater com o somatório dos itens.
 type totaisItem struct {
-	vBC, vICMS, vBCST, vICMSST float64
+	vBC, vICMS, vBCST, vICMSST             float64
+	vPIS, vCOFINS                          float64
+	vBCIBSCBS, vIBSUF, vIBSMun, vIBS, vCBS float64
 }
 
 func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
@@ -530,9 +582,12 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
 		icms.ICMS40 = &ICMS40{Orig: "0", CST: "40"}
 	}
 
+	vPIS := vProd * 0.0065
+	vCOFINS := vProd * 0.03
 	imp.ICMS = icms
-	imp.PIS = PIS{PISAliq: &PISAliq{CST: "01", VBC: fmtVal(vProd), PPIS: "0.65", VPIS: fmtVal(vProd * 0.0065)}}
-	imp.COFINS = COFINS{COFINSAliq: &COFINSAliq{CST: "01", VBC: fmtVal(vProd), PCOFINS: "3.00", VCOFINS: fmtVal(vProd * 0.03)}}
+	imp.PIS = PIS{PISAliq: &PISAliq{CST: "01", VBC: fmtVal(vProd), PPIS: "0.65", VPIS: fmtVal(vPIS)}}
+	imp.COFINS = COFINS{COFINSAliq: &COFINSAliq{CST: "01", VBC: fmtVal(vProd), PCOFINS: "3.00", VCOFINS: fmtVal(vCOFINS)}}
+	tot.vPIS, tot.vCOFINS = vPIS, vCOFINS
 
 	if item.IPI != nil {
 		vIPI := vProd * item.IPI.Aliq / 100
@@ -540,6 +595,26 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
 			CEnq:    item.IPI.CEnq,
 			IPITrib: &IPITrib{CST: item.IPI.CST, VBC: fmtVal(vProd), PIPI: fmtVal(item.IPI.Aliq), VIPI: fmtVal(vIPI)},
 		}
+	}
+
+	if item.IBSCBS != nil {
+		ib := item.IBSCBS
+		vBCIBSCBS := vProd
+		vIBSUF := vBCIBSCBS * ib.AliqIBSUF / 100
+		vIBSMun := vBCIBSCBS * ib.AliqIBSMun / 100
+		vIBS := vIBSUF + vIBSMun
+		vCBS := vBCIBSCBS * ib.AliqCBS / 100
+		imp.IBSCBS = &IBSCBS{
+			CST: ib.CST, ClassTrib: ib.ClassTrib,
+			GIBSCBS: GIBSCBS{
+				VBC:     fmtVal(vBCIBSCBS),
+				GIBSUF:  GIBSUF{PIBSUF: fmtVal(ib.AliqIBSUF), VIBSUF: fmtVal(vIBSUF)},
+				GIBSMun: GIBSMun{PIBSMun: fmtVal(ib.AliqIBSMun), VIBSMun: fmtVal(vIBSMun)},
+				VIBS:    fmtVal(vIBS),
+				GCBS:    GCBS{PCBS: fmtVal(ib.AliqCBS), VCBS: fmtVal(vCBS)},
+			},
+		}
+		tot.vBCIBSCBS, tot.vIBSUF, tot.vIBSMun, tot.vIBS, tot.vCBS = vBCIBSCBS, vIBSUF, vIBSMun, vIBS, vCBS
 	}
 
 	return imp, tot

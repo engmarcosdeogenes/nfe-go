@@ -296,6 +296,101 @@ func TestCRT3_ICMS00(t *testing.T) {
 	if tot.VICMS != "120.00" {
 		t.Errorf("ICMSTot.vICMS = %q, esperava 120.00 (1000*12%%)", tot.VICMS)
 	}
+	// PIS/COFINS total também tem que refletir o somatório (SEFAZ rejeita
+	// com cStat 602/603 senão).
+	if tot.VPIS != "6.50" {
+		t.Errorf("ICMSTot.vPIS = %q, esperava 6.50 (1000*0.65%%)", tot.VPIS)
+	}
+	if tot.VCOFINS != "30.00" {
+		t.Errorf("ICMSTot.vCOFINS = %q, esperava 30.00 (1000*3%%)", tot.VCOFINS)
+	}
+}
+
+// TestCRT3_IBSCBS cobre o grupo novo da reforma tributária (NT 2025.002-RTC,
+// Grupo UB) -- SEFAZ rejeita CRT=3 sem ele desde 01/07/2026 em homologação
+// (cStat=1115 "IBS/CBS não informado", confirmado contra SEFAZ-GO real em
+// 05/08/2026).
+func TestCRT3_IBSCBS(t *testing.T) {
+	e := entradaCRT3()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P001", CEAN: "SEM GTIN", Nome: "PRODUTO TESTE",
+		NCM: "39269090", CFOP: "5102", Unidade: "UN",
+		Quantidade: 10, VUnitario: 100.00,
+		ICMS: builder.EntradaICMS{CST: "00", Aliq: 12.0},
+		IBSCBS: &builder.EntradaIBSCBS{
+			CST: "000", ClassTrib: "000001",
+			AliqIBSUF: 0.05, AliqIBSMun: 0.05, AliqCBS: 0.9,
+		},
+	}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build CRT=3 IBSCBS: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	ib := nfe.InfNFe.Det[0].Imposto.IBSCBS
+	if ib == nil {
+		t.Fatal("esperava grupo IBSCBS no item")
+	}
+	if ib.CST != "000" || ib.ClassTrib != "000001" {
+		t.Errorf("CST/cClassTrib = %q/%q", ib.CST, ib.ClassTrib)
+	}
+	if ib.GIBSCBS.VBC != "1000.00" {
+		t.Errorf("vBC = %q, esperava 1000.00", ib.GIBSCBS.VBC)
+	}
+	if ib.GIBSCBS.VIBS != "1.00" {
+		t.Errorf("vIBS = %q, esperava 1.00 (0.5+0.5)", ib.GIBSCBS.VIBS)
+	}
+	if ib.GIBSCBS.GCBS.VCBS != "9.00" {
+		t.Errorf("vCBS = %q, esperava 9.00 (1000*0.9%%)", ib.GIBSCBS.GCBS.VCBS)
+	}
+
+	// Total da NF-e (Grupo W03) tem que refletir o somatório dos itens.
+	if nfe.InfNFe.Total.IBSCBSTot == nil {
+		t.Fatal("esperava IBSCBSTot no total da NF-e")
+	}
+	tot := nfe.InfNFe.Total.IBSCBSTot
+	if tot.VBCIBSCBS != "1000.00" {
+		t.Errorf("total vBCIBSCBS = %q, esperava 1000.00", tot.VBCIBSCBS)
+	}
+	if tot.GIBS.VIBS != "1.00" {
+		t.Errorf("total vIBS = %q, esperava 1.00", tot.GIBS.VIBS)
+	}
+	if tot.GCBS.VCBS != "9.00" {
+		t.Errorf("total vCBS = %q, esperava 9.00", tot.GCBS.VCBS)
+	}
+}
+
+// TestCRT3_SemIBSCBS_NaoAdicionaGrupo garante que item sem IBSCBS (nil)
+// continua sem o grupo -- não deve quebrar clientes CRT=1/2/4 nem gerar
+// IBSCBSTot vazio na NF-e (SEFAZ-GO rejeitaria "obrigatório").
+func TestCRT3_SemIBSCBS_NaoAdicionaGrupo(t *testing.T) {
+	e := entradaCRT3()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P001", CEAN: "SEM GTIN", Nome: "PRODUTO TESTE",
+		NCM: "73089090", CFOP: "5102", Unidade: "UN",
+		Quantidade: 10, VUnitario: 100.00,
+		ICMS: builder.EntradaICMS{CST: "00", Aliq: 12.0},
+	}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+	if nfe.InfNFe.Det[0].Imposto.IBSCBS != nil {
+		t.Error("não deveria ter grupo IBSCBS quando item.IBSCBS é nil")
+	}
+	if nfe.InfNFe.Total.IBSCBSTot != nil {
+		t.Error("não deveria ter IBSCBSTot quando nenhum item tem IBSCBS")
+	}
 }
 
 func TestCRT3_ICMS40_Isento(t *testing.T) {

@@ -175,11 +175,46 @@ type Produto struct {
 // ── Impostos ─────────────────────────────────────────────────────────────────
 
 type Imposto struct {
-	VTotTrib string `xml:"vTotTrib,omitempty"`
-	ICMS     *ICMS  `xml:"ICMS,omitempty"`
-	IPI      *IPI   `xml:"IPI,omitempty"`
-	PIS      PIS    `xml:"PIS"`
-	COFINS   COFINS `xml:"COFINS"`
+	VTotTrib string  `xml:"vTotTrib,omitempty"`
+	ICMS     *ICMS   `xml:"ICMS,omitempty"`
+	IPI      *IPI    `xml:"IPI,omitempty"`
+	PIS      PIS     `xml:"PIS"`
+	COFINS   COFINS  `xml:"COFINS"`
+	IBSCBS   *IBSCBS `xml:"IBSCBS,omitempty"`
+}
+
+// IBSCBS — grupo UB12/UB15 da NT 2025.002-RTC (reforma tributária, LC
+// 214/2025). Cobre só a tributação regular por item (sem monofasia, redução
+// de alíquota, diferimento, crédito presumido ou compra governamental --
+// esses ficam nos subgrupos opcionais gDif/gRed/gDevTrib/gTribRegular/
+// gTribCompraGov/gIBSCBSMono da mesma NT, ainda não implementados).
+type IBSCBS struct {
+	CST       string  `xml:"CST"`        // tabela CST do IBS/CBS (Portal NF-e > Documentos > Diversos)
+	ClassTrib string  `xml:"cClassTrib"` // tabela cClassTrib, Anexo III da NT
+	GIBSCBS   GIBSCBS `xml:"gIBSCBS"`
+}
+
+type GIBSCBS struct {
+	VBC     string  `xml:"vBC"`
+	GIBSUF  GIBSUF  `xml:"gIBSUF"`
+	GIBSMun GIBSMun `xml:"gIBSMun"`
+	VIBS    string  `xml:"vIBS"` // soma de vIBSUF + vIBSMun
+	GCBS    GCBS    `xml:"gCBS"`
+}
+
+type GIBSUF struct {
+	PIBSUF string `xml:"pIBSUF"`
+	VIBSUF string `xml:"vIBSUF"`
+}
+
+type GIBSMun struct {
+	PIBSMun string `xml:"pIBSMun"`
+	VIBSMun string `xml:"vIBSMun"`
+}
+
+type GCBS struct {
+	PCBS string `xml:"pCBS"`
+	VCBS string `xml:"vCBS"`
 }
 
 // ICMS — envelope que contém exatamente um dos grupos abaixo
@@ -385,7 +420,49 @@ type COFINSOutr struct {
 // ── Total ─────────────────────────────────────────────────────────────────────
 
 type Total struct {
-	ICMSTot ICMSTot `xml:"ICMSTot"`
+	ICMSTot   ICMSTot    `xml:"ICMSTot"`
+	IBSCBSTot *IBSCBSTot `xml:"IBSCBSTot,omitempty"`
+}
+
+// IBSCBSTot — grupo W03/W34 da NT 2025.002-RTC: somatório dos itens com
+// IBSCBS. O elemento <IBSCBSTot> do leiaute usa o tipo TIBSCBSMonoTot
+// (leiauteNFe_v4.00.xsd), não TIBSCBSTot -- este cobre também o mono/gMono e
+// exige vDif/vDevTrib/vCredPres/vCredPresCondSus mesmo sem os grupos
+// correspondentes implementados nos itens, por isso sempre "0.00" aqui,
+// nunca omitidos. gMono e gEstornoCred são opcionais (minOccurs=0) e ficam
+// de fora -- não implementamos monofasia nem estorno de crédito.
+type IBSCBSTot struct {
+	VBCIBSCBS string       `xml:"vBCIBSCBS"`
+	GIBS      GIBSTotal    `xml:"gIBS"`
+	GCBS      GCBSTotalIBS `xml:"gCBS"`
+}
+
+type GIBSTotal struct {
+	GIBSUF           GIBSUFTotal  `xml:"gIBSUF"`
+	GIBSMun          GIBSMunTotal `xml:"gIBSMun"`
+	VIBS             string       `xml:"vIBS"`
+	VCredPres        string       `xml:"vCredPres"`
+	VCredPresCondSus string       `xml:"vCredPresCondSus"`
+}
+
+type GIBSUFTotal struct {
+	VDif     string `xml:"vDif"`
+	VDevTrib string `xml:"vDevTrib"`
+	VIBSUF   string `xml:"vIBSUF"`
+}
+
+type GIBSMunTotal struct {
+	VDif     string `xml:"vDif"`
+	VDevTrib string `xml:"vDevTrib"`
+	VIBSMun  string `xml:"vIBSMun"`
+}
+
+type GCBSTotalIBS struct {
+	VDif             string `xml:"vDif"`
+	VDevTrib         string `xml:"vDevTrib"`
+	VCBS             string `xml:"vCBS"`
+	VCredPres        string `xml:"vCredPres"`
+	VCredPresCondSus string `xml:"vCredPresCondSus"`
 }
 
 type ICMSTot struct {
