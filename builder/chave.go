@@ -121,6 +121,18 @@ func FormatarCNPJ(cnpj string) string {
 	return string(out)
 }
 
+// FormatarIE remove pontuação (mantém dígitos e letras -- cobre "ISENTO"
+// e formatos alfanuméricos de algumas UFs).
+func FormatarIE(ie string) string {
+	out := make([]byte, 0, len(ie))
+	for _, c := range ie {
+		if (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
+			out = append(out, byte(c))
+		}
+	}
+	return string(out)
+}
+
 // FormatarCEP remove traço e retorna só os 8 dígitos.
 func FormatarCEP(cep string) string {
 	out := make([]byte, 0, 8)

@@ -164,6 +164,33 @@ func TestTotaisComDesconto(t *testing.T) {
 	}
 }
 
+// TestIESaiSemPontuacao cobre bug real achado pelo Validador SVRS (cStat=225):
+// IE formatada como vem em documento oficial ("20.028.578-5") violava o
+// datatype TIe do schema, que não aceita pontuação -- CNPJ e CEP já eram
+// limpos, IE não era.
+func TestIESaiSemPontuacao(t *testing.T) {
+	entrada := entradaExemplo()
+	entrada.Emitente.IE = "20.028.578-5"
+	entrada.Dest.IE = "98.765-4"
+
+	xmlBytes, _, err := builder.Build(entrada)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	if nfe.InfNFe.Emit.IE != "200285785" {
+		t.Errorf("IE emitente = %q, esperava só dígitos 200285785", nfe.InfNFe.Emit.IE)
+	}
+	if nfe.InfNFe.Dest.IE != "987654" {
+		t.Errorf("IE destinatário = %q, esperava só dígitos 987654", nfe.InfNFe.Dest.IE)
+	}
+}
+
 func TestChaveAcesso44Digitos(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		chave := builder.NovaChave("GO", "11222333000181", "1", "42", "1", "55", time.Now())
@@ -259,6 +286,16 @@ func TestCRT3_ICMS00(t *testing.T) {
 		t.Error("esperava COFINSAliq para CRT=3")
 	}
 	t.Logf("ICMS00 OK — VBC=%s VICMS=%s", icms.ICMS00.VBC, icms.ICMS00.VICMS)
+
+	// ICMSTot tem que refletir o somatório do item (SEFAZ rejeita com
+	// cStat=531 "Total da BC ICMS difere do somatório dos itens" senão).
+	tot := nfe.InfNFe.Total.ICMSTot
+	if tot.VBC != "1000.00" {
+		t.Errorf("ICMSTot.vBC = %q, esperava 1000.00 (10*100.00)", tot.VBC)
+	}
+	if tot.VICMS != "120.00" {
+		t.Errorf("ICMSTot.vICMS = %q, esperava 120.00 (1000*12%%)", tot.VICMS)
+	}
 }
 
 func TestCRT3_ICMS40_Isento(t *testing.T) {

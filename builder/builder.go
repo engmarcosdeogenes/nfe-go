@@ -326,7 +326,7 @@ func montarEmitente(e EntradaEmitente) Emitente {
 		CNPJ:  FormatarCNPJ(e.CNPJ),
 		XNome: e.Nome,
 		XFant: e.Fantasia,
-		IE:    e.IE,
+		IE:    FormatarIE(e.IE),
 		CRT:   e.CRT,
 		EnderEmit: EnderecoEmit{
 			XLgr:    e.End.Logradouro,
@@ -350,7 +350,7 @@ func montarDest(d EntradaDest) Destinatario {
 		CPF:       d.CPF,
 		XNome:     d.Nome,
 		IndIEDest: d.IndIEDest,
-		IE:        d.IE,
+		IE:        FormatarIE(d.IE),
 		Email:     d.Email,
 		EnderDest: EnderecoDest{
 			XLgr:    d.End.Logradouro,
@@ -373,11 +373,21 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, error) {
 	tot := ICMSTot{}
 	vProdTotal := 0.0
 	vDescTotal := 0.0
+	vBCTotal := 0.0
+	vICMSTotal := 0.0
+	vBCSTTotal := 0.0
+	vICMSSTTotal := 0.0
 
 	for i, item := range e.Itens {
 		vProd := item.Quantidade * item.VUnitario
 		vProdTotal += vProd
 		vDescTotal += item.VDesconto
+
+		imp, totItem := montarImposto(item, e.Emitente.CRT)
+		vBCTotal += totItem.vBC
+		vICMSTotal += totItem.vICMS
+		vBCSTTotal += totItem.vBCST
+		vICMSSTTotal += totItem.vICMSST
 
 		det := Detalhe{
 			NItem: fmt.Sprintf("%d", i+1),
@@ -398,7 +408,7 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, error) {
 				VDesc:    fmtValOmitZero(item.VDesconto),
 				IndTot:   "1",
 			},
-			Imposto: montarImposto(item, e.Emitente.CRT),
+			Imposto: imp,
 		}
 
 		if e.Frete.VFrete > 0 && i == 0 {
@@ -414,12 +424,12 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, error) {
 	tot.VProd = fmtVal(vProdTotal)
 	tot.VFrete = fmtVal(e.Frete.VFrete)
 	tot.VNF = fmtVal(vProdTotal + e.Frete.VFrete - vDescTotal)
-	tot.VBC = "0.00"
-	tot.VICMS = "0.00"
+	tot.VBC = fmtVal(vBCTotal)
+	tot.VICMS = fmtVal(vICMSTotal)
 	tot.VICMSDeson = "0.00"
 	tot.VFCP = "0.00"
-	tot.VBCST = "0.00"
-	tot.VST = "0.00"
+	tot.VBCST = fmtVal(vBCSTTotal)
+	tot.VST = fmtVal(vICMSSTTotal)
 	tot.VFCPST = "0.00"
 	tot.VFCPSTRet = "0.00"
 	tot.VSeg = "0.00"
@@ -437,7 +447,14 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, error) {
 	return detalhes, tot, nil
 }
 
-func montarImposto(item EntradaItem, crt string) Imposto {
+// totaisItem carrega as parcelas de ICMS de um item que precisam ser somadas
+// no total da NF-e (ICMSTot) -- SEFAZ rejeita (regras 531/etc.) se o total
+// declarado não bater com o somatório dos itens.
+type totaisItem struct {
+	vBC, vICMS, vBCST, vICMSST float64
+}
+
+func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
 	imp := Imposto{}
 
 	icms := &ICMS{}
@@ -451,7 +468,7 @@ func montarImposto(item EntradaItem, crt string) Imposto {
 		imp.ICMS = icms
 		imp.PIS = PIS{PISNt: &PISNt{CST: "07"}}
 		imp.COFINS = COFINS{COFINSNt: &COFINSNt{CST: "07"}}
-		return imp
+		return imp, totaisItem{}
 	}
 
 	// Regime Normal (CRT 3)
@@ -460,6 +477,7 @@ func montarImposto(item EntradaItem, crt string) Imposto {
 		cst = "00"
 	}
 	vProd := item.Quantidade * item.VUnitario
+	tot := totaisItem{}
 
 	switch cst {
 	case "00":
@@ -469,6 +487,7 @@ func montarImposto(item EntradaItem, crt string) Imposto {
 			Orig: "0", CST: "00", ModBC: "3",
 			VBC: fmtVal(vBC), PICMS: fmtVal(item.ICMS.Aliq), VICMS: fmtVal(vICMS),
 		}
+		tot.vBC, tot.vICMS = vBC, vICMS
 	case "10":
 		vBC := vProd
 		vICMS := vBC * item.ICMS.Aliq / 100
@@ -487,6 +506,7 @@ func montarImposto(item EntradaItem, crt string) Imposto {
 			ModBCST: modBCST, PMVAST: fmtVal(item.ICMS.PMVAST),
 			VBCST: fmtVal(vBCST), PICMSST: fmtVal(item.ICMS.AliqST), VICMSST: fmtVal(vICMSST),
 		}
+		tot.vBC, tot.vICMS, tot.vBCST, tot.vICMSST = vBC, vICMS, vBCST, vICMSST
 	case "40", "41", "50":
 		icms.ICMS40 = &ICMS40{Orig: "0", CST: cst}
 	case "60":
@@ -505,6 +525,7 @@ func montarImposto(item EntradaItem, crt string) Imposto {
 			PRedBC: fmtVal(item.ICMS.PRedBC), VBC: fmtVal(vBC),
 			PICMS: fmtVal(item.ICMS.Aliq), VICMS: fmtVal(vICMS),
 		}
+		tot.vBC, tot.vICMS = vBC, vICMS
 	default:
 		icms.ICMS40 = &ICMS40{Orig: "0", CST: "40"}
 	}
@@ -521,7 +542,7 @@ func montarImposto(item EntradaItem, crt string) Imposto {
 		}
 	}
 
-	return imp
+	return imp, tot
 }
 
 func montarPagamento(ps []EntradaPagamento) Pagamento {
