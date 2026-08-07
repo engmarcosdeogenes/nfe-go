@@ -77,6 +77,11 @@ func (c *Certificado) TLSConfig() *tls.Config {
 		Certificates:       []tls.Certificate{tlsCert},
 		InsecureSkipVerify: false,
 		MinVersion:         tls.VersionTLS12,
+		// Ambiente Nacional (hom.nfe.fazenda.gov.br, usado por DistribuirDFe)
+		// pede o certificado via renegociação TLS pós-handshake — sem isso dá
+		// "tls: no renegotiation". SEFAZ-GO regional (Autorizar) não precisa,
+		// mas ligar aqui não quebra quem já funciona sem.
+		Renegotiation: tls.RenegotiateFreelyAsClient,
 	}
 }
 
