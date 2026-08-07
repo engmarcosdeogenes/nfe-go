@@ -78,10 +78,15 @@ func (cl *Cliente) ConsultarProtocolo(ctx context.Context, chave string) (*Retor
 // ── Cancelamento (evento 110111) ──────────────────────────────────────────────
 
 // RetornoCancelamento é o retorno do NFeRecepcaoEvento para cancelamento.
+// CStat/XMotivo (via RetornoSEFAZ) são do LOTE (ex: 128 "Lote de Evento
+// Processado") — o resultado do evento em si (135 registrado, ou rejeição)
+// vem em CStatEvento/XMotivoEvento.
 type RetornoCancelamento struct {
 	RetornoSEFAZ
-	ChNFe string
-	NProt string
+	ChNFe         string
+	NProt         string
+	CStatEvento   string
+	XMotivoEvento string
 }
 
 // Cancelar cancela uma NF-e autorizada.
@@ -166,9 +171,11 @@ func (cl *Cliente) Cancelar(ctx context.Context, chave, nProt, justificativa str
 
 	ret := result.Ret
 	return &RetornoCancelamento{
-		RetornoSEFAZ: ret.RetornoSEFAZ,
-		ChNFe:        ret.InfEvento.ChNFe,
-		NProt:        ret.InfEvento.NProt,
+		RetornoSEFAZ:  ret.RetornoSEFAZ,
+		ChNFe:         ret.InfEvento.ChNFe,
+		NProt:         ret.InfEvento.NProt,
+		CStatEvento:   ret.InfEvento.CStat,
+		XMotivoEvento: ret.InfEvento.XMotivo,
 	}, nil
 }
 
@@ -177,27 +184,36 @@ func (cl *Cliente) Cancelar(ctx context.Context, chave, nProt, justificativa str
 // XCondUsoCartaCorrecao é o texto obrigatório de condição de uso da CC-e conforme NT.
 const XCondUsoCartaCorrecao = "A Carta de Correcao e disciplinada pelo paragrafo 1o-A do art. 7o do Convenio S/N de 15 de dezembro de 1970 e pode ser utilizada para regularizacao de erro ocorrido na emissao de documento fiscal, desde que o erro nao esteja relacionado com: I - as variaveis que determinam o valor do imposto tais como: base de calculo, aliquota, diferenca de preco, quantidade, valor da operacao ou da prestacao; II - a correcao de dados cadastrais que implique mudanca do remetente ou do destinatario; III - a data de emissao ou de saida."
 
+// RetornoCartaCorrecao é o retorno do NFeRecepcaoEvento para CC-e.
+// CStatEvento/XMotivoEvento são o resultado do evento em si (135 registrado,
+// ou rejeição) — RetornoSEFAZ embutido é o status do LOTE.
+type RetornoCartaCorrecao struct {
+	RetornoSEFAZ
+	NProt         string
+	CStatEvento   string
+	XMotivoEvento string
+}
+
 // CartaCorrecao envia uma Carta de Correção Eletrônica (CC-e, tpEvento=110110).
 // chNFe: chave de acesso (44 dígitos) — os 2 primeiros dígitos determinam a UF roteadora.
 // xCorrecao: descrição da correção (15-1000 caracteres).
 // xCondUso: condição de uso — usar XCondUsoCartaCorrecao.
 // nSeqEvento: sequencial da CC-e para esta NF-e (1-20).
-// Retorna o nProt do protocolo de registro ou erro.
-func CartaCorrecao(c *cert.Certificado, chNFe, xCorrecao, xCondUso string, nSeqEvento int, amb Ambiente) (protocolo string, err error) {
+func CartaCorrecao(c *cert.Certificado, chNFe, xCorrecao, xCondUso string, nSeqEvento int, amb Ambiente) (*RetornoCartaCorrecao, error) {
 	if len(xCorrecao) < 15 {
-		return "", fmt.Errorf("sefaz: xCorrecao deve ter no mínimo 15 caracteres (tem %d)", len(xCorrecao))
+		return nil, fmt.Errorf("sefaz: xCorrecao deve ter no mínimo 15 caracteres (tem %d)", len(xCorrecao))
 	}
 	if len(xCorrecao) > 1000 {
-		return "", fmt.Errorf("sefaz: xCorrecao deve ter no máximo 1000 caracteres (tem %d)", len(xCorrecao))
+		return nil, fmt.Errorf("sefaz: xCorrecao deve ter no máximo 1000 caracteres (tem %d)", len(xCorrecao))
 	}
 	if len(chNFe) != 44 {
-		return "", fmt.Errorf("sefaz: chNFe deve ter 44 dígitos (tem %d)", len(chNFe))
+		return nil, fmt.Errorf("sefaz: chNFe deve ter 44 dígitos (tem %d)", len(chNFe))
 	}
 
 	cuf := chNFe[:2]
 	cl, clErr := NovoCliente(cuf, amb, c)
 	if clErr != nil {
-		return "", fmt.Errorf("sefaz: CartaCorrecao: criar cliente: %w", clErr)
+		return nil, fmt.Errorf("sefaz: CartaCorrecao: criar cliente: %w", clErr)
 	}
 
 	dhEvento := time.Now().UTC().Format("2006-01-02T15:04:05-03:00")
@@ -227,7 +243,7 @@ func CartaCorrecao(c *cert.Certificado, chNFe, xCorrecao, xCondUso string, nSeqE
 
 	eventoAssinado, err := sign.AssinarEvento([]byte(xmlEvento), c)
 	if err != nil {
-		return "", fmt.Errorf("sefaz: assinar CC-e: %w", err)
+		return nil, fmt.Errorf("sefaz: assinar CC-e: %w", err)
 	}
 
 	ctx := context.Background()
@@ -245,12 +261,12 @@ func CartaCorrecao(c *cert.Certificado, chNFe, xCorrecao, xCondUso string, nSeqE
 
 	respBody, err := cl.chamar(ctx, ServicoRecepcaoEvento, soapBody)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	inner, err := extrairEnvelope(respBody)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	type xmlInfEvento struct {
@@ -267,10 +283,15 @@ func CartaCorrecao(c *cert.Certificado, chNFe, xCorrecao, xCondUso string, nSeqE
 	}
 	var result xmlResult
 	if err := xml.Unmarshal(inner, &result); err != nil {
-		return "", fmt.Errorf("sefaz: parse retEnvEvento CC-e: %w", err)
+		return nil, fmt.Errorf("sefaz: parse retEnvEvento CC-e: %w", err)
 	}
 
-	return result.Ret.InfEvento.NProt, nil
+	return &RetornoCartaCorrecao{
+		RetornoSEFAZ:  result.Ret.RetornoSEFAZ,
+		NProt:         result.Ret.InfEvento.NProt,
+		CStatEvento:   result.Ret.InfEvento.CStat,
+		XMotivoEvento: result.Ret.InfEvento.XMotivo,
+	}, nil
 }
 
 // ── Manifestação do destinatário (eventos 210210 / 210200 / 210220 / 210240) ──
@@ -389,10 +410,15 @@ func (cl *Cliente) Manifestar(ctx context.Context, cnpj, chave, tipo, justificat
 
 // ── Inutilização ──────────────────────────────────────────────────────────────
 
-// RetornoInutilizacao é o retorno do NFeInutilizacao.
+// RetornoInutilizacao é o retorno do NFeInutilizacao. cStat/xMotivo (102 =
+// "Inutilização de número homologada", ou rejeição) só existem dentro de
+// infInut na resposta real — RetornoSEFAZ embutido aqui NÃO é preenchido
+// (não existe cStat solto em retInutNFe), por isso os campos próprios abaixo.
 type RetornoInutilizacao struct {
 	RetornoSEFAZ
-	NProt string
+	NProt   string
+	CStat   string
+	XMotivo string
 }
 
 // ResultadoInutilizacao contém o resultado de uma faixa individual em InutilizarLote.
@@ -405,13 +431,14 @@ type ResultadoInutilizacao struct {
 
 // inutilizarFaixa executa a inutilização de uma única faixa com ano explícito.
 // Compartilhado por Inutilizar (que computa ano do relógio) e InutilizarLote.
-func (cl *Cliente) inutilizarFaixa(ctx context.Context, c *cert.Certificado, cnpj, ano, serie, nNFIni, nNFFin, justificativa string) (*RetornoInutilizacao, error) {
+// modelo: "55" (NF-e) ou "65" (NFC-e) — entra tanto no Id quanto no <mod>.
+func (cl *Cliente) inutilizarFaixa(ctx context.Context, c *cert.Certificado, cnpj, ano, modelo, serie, nNFIni, nNFFin, justificativa string) (*RetornoInutilizacao, error) {
 	if len(justificativa) < 15 || len(justificativa) > 255 {
 		return nil, fmt.Errorf("sefaz: justificativa deve ter entre 15 e 255 caracteres (tem %d)", len(justificativa))
 	}
 
-	idInut := fmt.Sprintf("ID%s%s%s55%s%s%s",
-		cl.cuf, cnpj, ano, serie,
+	idInut := fmt.Sprintf("ID%s%s%s%s%s%s%s",
+		cl.cuf, cnpj, ano, modelo, serie,
 		fmt.Sprintf("%09s", nNFIni), fmt.Sprintf("%09s", nNFFin),
 	)
 
@@ -423,14 +450,14 @@ func (cl *Cliente) inutilizarFaixa(ctx context.Context, c *cert.Certificado, cnp
 			`<cUF>%s</cUF>`+
 			`<ano>%s</ano>`+
 			`<CNPJ>%s</CNPJ>`+
-			`<mod>55</mod>`+
+			`<mod>%s</mod>`+
 			`<serie>%s</serie>`+
 			`<nNFIni>%s</nNFIni>`+
 			`<nNFFin>%s</nNFFin>`+
 			`<xJust>%s</xJust>`+
 			`</infInut>`+
 			`</inutNFe>`,
-		idInut, string(cl.amb), cl.cuf, ano, cnpj,
+		idInut, string(cl.amb), cl.cuf, ano, cnpj, modelo,
 		serie, nNFIni, nNFFin, justificativa,
 	)
 
@@ -476,22 +503,24 @@ func (cl *Cliente) inutilizarFaixa(ctx context.Context, c *cert.Certificado, cnp
 	return &RetornoInutilizacao{
 		RetornoSEFAZ: result.Ret.RetornoSEFAZ,
 		NProt:        result.Ret.InfInut.NProt,
+		CStat:        result.Ret.InfInut.CStat,
+		XMotivo:      result.Ret.InfInut.XMotivo,
 	}, nil
 }
 
-// Inutilizar inutiliza uma faixa de números de NF-e (ano-calendário corrente).
-// serie: série (ex: "1"), nNFIni/nNFFin: faixa numérica (ex: "1", "10").
+// Inutilizar inutiliza uma faixa de números de NF-e/NFC-e (ano-calendário corrente).
+// modelo: "55" (NF-e) ou "65" (NFC-e). serie: série (ex: "1"), nNFIni/nNFFin: faixa numérica (ex: "1", "10").
 // justificativa: 15-255 caracteres.
-func (cl *Cliente) Inutilizar(ctx context.Context, cnpj, serie, nNFIni, nNFFin, justificativa string, c *cert.Certificado) (*RetornoInutilizacao, error) {
+func (cl *Cliente) Inutilizar(ctx context.Context, cnpj, modelo, serie, nNFIni, nNFFin, justificativa string, c *cert.Certificado) (*RetornoInutilizacao, error) {
 	ano := fmt.Sprintf("%02d", time.Now().Year()%100)
-	return cl.inutilizarFaixa(ctx, c, cnpj, ano, serie, nNFIni, nNFFin, justificativa)
+	return cl.inutilizarFaixa(ctx, c, cnpj, ano, modelo, serie, nNFIni, nNFFin, justificativa)
 }
 
 // InutilizarLote inutiliza múltiplas faixas de numeração sequencialmente, sem abortar no primeiro erro.
 // cuf: código IBGE da UF emitente (2 dígitos, ex: "52" para GO). cnpj: 14 dígitos do emitente.
-// ano: 2 dígitos do ano-calendário (ex: "26" para 2026).
+// ano: 2 dígitos do ano-calendário (ex: "26" para 2026). modelo: "55" ou "65".
 // Cada índice i representa a faixa [nIniList[i], nFinList[i]] com justificativa xJustList[i].
-func InutilizarLote(c *cert.Certificado, cuf, cnpj, ano, serie string, nIniList []int, nFinList []int, xJustList []string, amb Ambiente) ([]ResultadoInutilizacao, error) {
+func InutilizarLote(c *cert.Certificado, cuf, cnpj, ano, modelo, serie string, nIniList []int, nFinList []int, xJustList []string, amb Ambiente) ([]ResultadoInutilizacao, error) {
 	if len(nIniList) != len(nFinList) || len(nIniList) != len(xJustList) {
 		return nil, fmt.Errorf("sefaz: InutilizarLote: nIniList(%d), nFinList(%d) e xJustList(%d) devem ter o mesmo tamanho",
 			len(nIniList), len(nFinList), len(xJustList))
@@ -506,7 +535,7 @@ func InutilizarLote(c *cert.Certificado, cuf, cnpj, ano, serie string, nIniList 
 	resultados := make([]ResultadoInutilizacao, len(nIniList))
 	for i := range nIniList {
 		r := ResultadoInutilizacao{NIni: nIniList[i], NFin: nFinList[i]}
-		ret, err := cl.inutilizarFaixa(ctx, c, cnpj, ano, serie,
+		ret, err := cl.inutilizarFaixa(ctx, c, cnpj, ano, modelo, serie,
 			fmt.Sprintf("%d", nIniList[i]),
 			fmt.Sprintf("%d", nFinList[i]),
 			xJustList[i],

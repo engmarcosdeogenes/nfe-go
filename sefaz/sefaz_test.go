@@ -331,7 +331,7 @@ func TestCartaCorrecao_XCorrecaoLongo(t *testing.T) {
 func TestInutilizarLote_ValidacaoTamanhos(t *testing.T) {
 	c := certTeste(t)
 	_, err := sefaz.InutilizarLote(
-		c, "52", "11222333000181", "26", "1",
+		c, "52", "11222333000181", "26", "55", "1",
 		[]int{1, 2},  // 2 elementos
 		[]int{10},    // 1 elemento — divergente
 		[]string{"justificativa valida longa o suficiente", "segunda"},
@@ -351,7 +351,7 @@ func TestInutilizarLote_Estrutura(t *testing.T) {
 	// Justificativas curtas (< 15 chars) provocam erro local — sem chamada de rede.
 	// Verifica que ambas as faixas são tentadas (não aborta no primeiro erro).
 	resultados, err := sefaz.InutilizarLote(
-		c, "52", "11222333000181", "26", "1",
+		c, "52", "11222333000181", "26", "55", "1",
 		[]int{100, 200},
 		[]int{109, 209},
 		[]string{"curta", "curta2"},
