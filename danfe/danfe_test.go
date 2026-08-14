@@ -489,7 +489,8 @@ func TestParseNFeXML(t *testing.T) {
 	if dados.EmitNome != "METALURGICA TESTE LTDA" {
 		t.Errorf("EmitNome: %q", dados.EmitNome)
 	}
-	if dados.DestNome != "CLIENTE INDUSTRIA SA" {
+	// Fixture é tpAmb=2, então o builder força o placeholder de homologação.
+	if dados.DestNome != builder.XNomeDestHomologacao {
 		t.Errorf("DestNome: %q", dados.DestNome)
 	}
 	if len(dados.Itens) != 2 {

@@ -10,6 +10,26 @@ import (
 	"github.com/engmarcosdeogenes/nfe-go/sign"
 )
 
+// agoraBrasilia devolve o instante atual no fuso de Brasília, no formato
+// dhEvento exigido pela SEFAZ.
+//
+// Cuidado: "-03:00" NÃO é placeholder de offset no layout do Go (o de
+// referência é "-07:00"), então formatar UTC com ele carimba um horário 3h
+// adiantado como se fosse de Brasília — a SEFAZ rejeita com cStat=578
+// "A data do evento não pode ser maior que a data do processamento".
+func agoraBrasilia() string {
+	return time.Now().In(time.FixedZone("BRT", -3*3600)).Format("2006-01-02T15:04:05-07:00")
+}
+
+// idInutilizacao monta o Id do infInut: "ID" + cUF(2) + ano(2) + CNPJ(14) +
+// mod(2) + serie(3) + nNFIni(9) + nNFFin(9), nessa ordem e com zeros à
+// esquerda — pattern ID[0-9]{4}[0-9A-Z]{12}[0-9]{25} do
+// leiauteInutNFe_v4.00.xsd. Qualquer desvio volta cStat=215 "Falha no schema
+// XML", sem dizer qual campo.
+func idInutilizacao(cuf, ano, cnpj, modelo, serie, nNFIni, nNFFin string) string {
+	return fmt.Sprintf("ID%s%s%s%s%03s%09s%09s", cuf, ano, cnpj, modelo, serie, nNFIni, nNFFin)
+}
+
 // ── Consulta de protocolo ─────────────────────────────────────────────────────
 
 // RetornoConsultaProtocolo é o retorno do NFeConsultaProtocolo.
@@ -98,7 +118,7 @@ func (cl *Cliente) Cancelar(ctx context.Context, chave, nProt, justificativa str
 		return nil, fmt.Errorf("sefaz: justificativa deve ter entre 15 e 255 caracteres (tem %d)", len(justificativa))
 	}
 
-	dhEvento := time.Now().UTC().Format("2006-01-02T15:04:05-03:00")
+	dhEvento := agoraBrasilia()
 	idEvento := fmt.Sprintf("ID110111%s01", chave)
 
 	// XML do evento antes de assinar
@@ -181,8 +201,12 @@ func (cl *Cliente) Cancelar(ctx context.Context, chave, nProt, justificativa str
 
 // ── Carta de Correção Eletrônica (evento 110110) ──────────────────────────────
 
-// XCondUsoCartaCorrecao é o texto obrigatório de condição de uso da CC-e conforme NT.
-const XCondUsoCartaCorrecao = "A Carta de Correcao e disciplinada pelo paragrafo 1o-A do art. 7o do Convenio S/N de 15 de dezembro de 1970 e pode ser utilizada para regularizacao de erro ocorrido na emissao de documento fiscal, desde que o erro nao esteja relacionado com: I - as variaveis que determinam o valor do imposto tais como: base de calculo, aliquota, diferenca de preco, quantidade, valor da operacao ou da prestacao; II - a correcao de dados cadastrais que implique mudanca do remetente ou do destinatario; III - a data de emissao ou de saida."
+// XCondUsoCartaCorrecao é o texto de condição de uso da CC-e. É uma
+// ENUMERAÇÃO no leiauteCCe_v1.00.xsd, não texto livre: qualquer caractere
+// fora do lugar (já aconteceu com uma vírgula depois de "Convenio S/N")
+// derruba tudo com cStat=215 "Falha no schema XML". Copiar do XSD, nunca
+// digitar à mão.
+const XCondUsoCartaCorrecao = "A Carta de Correcao e disciplinada pelo paragrafo 1o-A do art. 7o do Convenio S/N, de 15 de dezembro de 1970 e pode ser utilizada para regularizacao de erro ocorrido na emissao de documento fiscal, desde que o erro nao esteja relacionado com: I - as variaveis que determinam o valor do imposto tais como: base de calculo, aliquota, diferenca de preco, quantidade, valor da operacao ou da prestacao; II - a correcao de dados cadastrais que implique mudanca do remetente ou do destinatario; III - a data de emissao ou de saida."
 
 // RetornoCartaCorrecao é o retorno do NFeRecepcaoEvento para CC-e.
 // CStatEvento/XMotivoEvento são o resultado do evento em si (135 registrado,
@@ -216,7 +240,7 @@ func CartaCorrecao(c *cert.Certificado, chNFe, xCorrecao, xCondUso string, nSeqE
 		return nil, fmt.Errorf("sefaz: CartaCorrecao: criar cliente: %w", clErr)
 	}
 
-	dhEvento := time.Now().UTC().Format("2006-01-02T15:04:05-03:00")
+	dhEvento := agoraBrasilia()
 	idEvento := fmt.Sprintf("ID110110%s%02d", chNFe, nSeqEvento)
 
 	xmlEvento := fmt.Sprintf(
@@ -329,7 +353,7 @@ func (cl *Cliente) Manifestar(ctx context.Context, cnpj, chave, tipo, justificat
 		return nil, fmt.Errorf("sefaz: justificativa deve ter entre 15 e 255 caracteres para nao_realizada (tem %d)", len(justificativa))
 	}
 
-	dhEvento := time.Now().UTC().Format("2006-01-02T15:04:05-03:00")
+	dhEvento := agoraBrasilia()
 	idEvento := fmt.Sprintf("ID%s%s01", cfg.TpEvento, chave)
 
 	detEvento := fmt.Sprintf(`<detEvento versao="1.00"><descEvento>%s</descEvento>`, cfg.Desc)
@@ -437,10 +461,7 @@ func (cl *Cliente) inutilizarFaixa(ctx context.Context, c *cert.Certificado, cnp
 		return nil, fmt.Errorf("sefaz: justificativa deve ter entre 15 e 255 caracteres (tem %d)", len(justificativa))
 	}
 
-	idInut := fmt.Sprintf("ID%s%s%s%s%s%s%s",
-		cl.cuf, cnpj, ano, modelo, serie,
-		fmt.Sprintf("%09s", nNFIni), fmt.Sprintf("%09s", nNFFin),
-	)
+	idInut := idInutilizacao(cl.cuf, ano, cnpj, modelo, serie, nNFIni, nNFFin)
 
 	xmlInut := fmt.Sprintf(
 		`<inutNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">`+

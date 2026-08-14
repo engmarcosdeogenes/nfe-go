@@ -221,6 +221,12 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 	if tpAmb == "" {
 		tpAmb = "2" // default homologação
 	}
+	// Em homologação o xNome do destinatário tem que ser exatamente este texto
+	// (regra nacional, todo SEFAZ). Sem isso a SEFAZ rejeita com cStat=999
+	// "Erro não catalogado", que não dá nenhuma pista da causa.
+	if tpAmb == "2" && dest != nil {
+		dest.XNome = XNomeDestHomologacao
+	}
 	finNFe := e.FinNFe
 	if finNFe == "" {
 		finNFe = "1"

@@ -8,6 +8,10 @@ const (
 	VersaoNFe  = "4.00"
 	ModeloNFe  = "55" // NF-e
 	ModeloNFCe = "65" // NFC-e
+
+	// XNomeDestHomologacao é o texto exigido no xNome do destinatário quando
+	// tpAmb=2. Aplicado automaticamente pelo Build.
+	XNomeDestHomologacao = "NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL"
 )
 
 // ── Raiz ─────────────────────────────────────────────────────────────────────

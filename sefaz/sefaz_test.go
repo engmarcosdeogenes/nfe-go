@@ -487,3 +487,4 @@ func TestAutorizar_Sincrono_ProtocoloEmbutido(t *testing.T) {
 		t.Errorf("nProt = %q, want %q", resultado.Protocolo.NProt, "152260000000001")
 	}
 }
+

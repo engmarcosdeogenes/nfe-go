@@ -1013,3 +1013,38 @@ func TestChaveAcesso_DoisBuildsMesmaEntrada_ChavesDiferentes(t *testing.T) {
 		t.Error("duas builds da mesma entrada geraram a mesma chave — cNF não é aleatório")
 	}
 }
+
+// TestPlaceholderHomologacao cobre a causa raiz do cStat=999 que travou a
+// emissão por dias: em tpAmb=2 o xNome do destinatário tem que ser o texto
+// exato exigido pela regra nacional, e o chamador não pode depender de lembrar.
+func TestPlaceholderHomologacao(t *testing.T) {
+	entrada := entradaExemplo()
+	entrada.TpAmb = "2"
+	entrada.Dest.Nome = "CLIENTE REAL LTDA"
+
+	xmlBytes, _, err := builder.Build(entrada)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+	if nfe.InfNFe.Dest.XNome != builder.XNomeDestHomologacao {
+		t.Errorf("xNome = %q, esperava placeholder de homologação", nfe.InfNFe.Dest.XNome)
+	}
+
+	// Produção mantém o nome real.
+	entrada.TpAmb = "1"
+	xmlBytes, _, err = builder.Build(entrada)
+	if err != nil {
+		t.Fatalf("Build produção: %v", err)
+	}
+	nfe = builder.NFe{}
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+	if nfe.InfNFe.Dest.XNome != "CLIENTE REAL LTDA" {
+		t.Errorf("xNome em produção = %q, esperava o nome real", nfe.InfNFe.Dest.XNome)
+	}
+}
