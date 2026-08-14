@@ -237,6 +237,14 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 		tpEmis = "1"
 	}
 
+	// modFrete não tem valor vazio válido no enum — sem default aqui, quem
+	// esquecer de preencher só descobre com cStat=225 "Falha no Schema XML"
+	// vindo da SEFAZ, que não diz qual campo.
+	modFrete := e.Frete.Modalidade
+	if modFrete == "" {
+		modFrete = "9" // sem ocorrência de transporte
+	}
+
 	var nfref []NFref
 	if e.ChaveNFeRef != "" {
 		nfref = []NFref{{RefNFe: e.ChaveNFeRef}}
@@ -276,7 +284,7 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 			Det:   detalhes,
 			Total: Total{ICMSTot: totais, IBSCBSTot: ibscbsTot},
 			Transp: Transporte{
-				ModFrete: e.Frete.Modalidade,
+				ModFrete: modFrete,
 			},
 			Pag: montarPagamento(e.Pagamento),
 			InfAdic: func() *InfAdic {

@@ -1048,3 +1048,36 @@ func TestPlaceholderHomologacao(t *testing.T) {
 		t.Errorf("xNome em produção = %q, esperava o nome real", nfe.InfNFe.Dest.XNome)
 	}
 }
+
+// TestModFreteDefault cobre bug real: modFrete vazio não é valor válido do
+// enum, e a SEFAZ só responde cStat=225 "Falha no Schema XML" sem dizer qual
+// campo. Quem chama não pode ser obrigado a lembrar.
+func TestModFreteDefault(t *testing.T) {
+	entrada := entradaExemplo()
+	entrada.Frete.Modalidade = ""
+
+	xmlBytes, _, err := builder.Build(entrada)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+	if nfe.InfNFe.Transp.ModFrete != "9" {
+		t.Errorf("modFrete = %q, esperava default 9", nfe.InfNFe.Transp.ModFrete)
+	}
+
+	entrada.Frete.Modalidade = "0"
+	xmlBytes, _, err = builder.Build(entrada)
+	if err != nil {
+		t.Fatalf("Build com frete explícito: %v", err)
+	}
+	nfe = builder.NFe{}
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+	if nfe.InfNFe.Transp.ModFrete != "0" {
+		t.Errorf("modFrete = %q, valor explícito nao pode ser sobrescrito", nfe.InfNFe.Transp.ModFrete)
+	}
+}
