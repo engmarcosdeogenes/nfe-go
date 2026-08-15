@@ -39,6 +39,10 @@ const (
 	// ServicoDistribuicaoDFe é o serviço nacional de distribuição de DF-e.
 	// Endpoint único para todos os estados — ignora cUF na resolução de URL.
 	ServicoDistribuicaoDFe Servico = "NFeDistribuicaoDFe"
+	// ServicoConsultaCadastro consulta a situação cadastral do contribuinte na
+	// SEFAZ da UF. Nem toda UF oferece — sem entrada na tabela, ObterURL
+	// devolve "" e o serviço falha com erro claro em vez de chutar URL.
+	ServicoConsultaCadastro Servico = "CadConsultaCadastro"
 )
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -63,6 +67,7 @@ var svrs = map[Servico]endpoints{
 	ServicoRecepcaoEvento:    {"https://nfe.svrs.rs.gov.br/ws/recepcaoEvento/recepcaoEvento.asmx", "https://homologacao.svrs.rs.gov.br/ws/recepcaoEvento/recepcaoEvento.asmx"},
 	ServicoInutilizacao:      {"https://nfe.svrs.rs.gov.br/ws/nfeinutilizacao/nfeinutilizacao2.asmx", "https://homologacao.svrs.rs.gov.br/ws/nfeinutilizacao/nfeinutilizacao2.asmx"},
 	ServicoStatusServico:     {"https://nfe.svrs.rs.gov.br/ws/NFeStatusServico/NFeStatusServico4.asmx", "https://homologacao.svrs.rs.gov.br/ws/NFeStatusServico/NFeStatusServico4.asmx"},
+	ServicoConsultaCadastro:  {"https://cad.svrs.rs.gov.br/ws/cadconsultacadastro/cadconsultacadastro4.asmx", "https://cad-homologacao.svrs.rs.gov.br/ws/cadconsultacadastro/cadconsultacadastro4.asmx"},
 }
 
 // svan = Sefaz Virtual Ambiente Nacional (usado por AM, CE, MA, PA, PI como contingência/titular)
@@ -105,6 +110,7 @@ var endpointsPorUF = map[string]map[Servico]endpoints{
 		ServicoRecepcaoEvento:    {"https://nfe.sefaz.go.gov.br/nfe/services/NFeRecepcaoEvento4", "https://homolog.sefaz.go.gov.br/nfe/services/NFeRecepcaoEvento4"},
 		ServicoInutilizacao:      {"https://nfe.sefaz.go.gov.br/nfe/services/NFeInutilizacao4", "https://homolog.sefaz.go.gov.br/nfe/services/NFeInutilizacao4"},
 		ServicoStatusServico:     {"https://nfe.sefaz.go.gov.br/nfe/services/NFeStatusServico4", "https://homolog.sefaz.go.gov.br/nfe/services/NFeStatusServico4"},
+		ServicoConsultaCadastro:  {"https://nfe.sefaz.go.gov.br/nfe/services/CadConsultaCadastro4", "https://homolog.sefaz.go.gov.br/nfe/services/CadConsultaCadastro4"},
 	},
 
 	// MG — Minas Gerais

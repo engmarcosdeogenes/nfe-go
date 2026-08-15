@@ -21,6 +21,7 @@ var soapAction = map[Servico]string{
 	ServicoInutilizacao:      "http://www.portalfiscal.inf.br/nfe/wsdl/NFeInutilizacao4/nfeInutilizacaoNF",
 	ServicoStatusServico:     "http://www.portalfiscal.inf.br/nfe/wsdl/NFeStatusServico4/nfeStatusServicoNF",
 	ServicoDistribuicaoDFe:   "http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe/nfeDistDFeInteresse",
+	ServicoConsultaCadastro:  "http://www.portalfiscal.inf.br/nfe/wsdl/CadConsultaCadastro4/consultaCadastro",
 }
 
 // Cliente é o cliente SOAP para os webservices SEFAZ.
