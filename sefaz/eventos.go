@@ -35,8 +35,9 @@ func idInutilizacao(cuf, ano, cnpj, modelo, serie, nNFIni, nNFFin string) string
 // RetornoConsultaProtocolo é o retorno do NFeConsultaProtocolo.
 type RetornoConsultaProtocolo struct {
 	RetornoSEFAZ
-	ChNFe   string `xml:"chNFe"`
-	NProt   string `xml:"nProt"`
+	ChNFe    string `xml:"chNFe"`
+	NProt    string `xml:"nProt"`
+	VerAplic string `xml:"verAplic"`
 	DhRecbto string `xml:"dhRecbto"`
 	// XMLNFeProc: o XML completo da nfeProc retornado pela SEFAZ, se autorizada.
 	XMLNFeProc []byte
@@ -70,6 +71,7 @@ func (cl *Cliente) ConsultarProtocolo(ctx context.Context, chave string) (*Retor
 	type xmlInfProt struct {
 		ChNFe    string `xml:"chNFe"`
 		NProt    string `xml:"nProt"`
+		VerAplic string `xml:"verAplic"`
 		DhRecbto string `xml:"dhRecbto"`
 		CStat    string `xml:"cStat"`
 		XMotivo  string `xml:"xMotivo"`
@@ -91,6 +93,7 @@ func (cl *Cliente) ConsultarProtocolo(ctx context.Context, chave string) (*Retor
 		RetornoSEFAZ: result.Ret.RetornoSEFAZ,
 		ChNFe:        result.Ret.InfProt.ChNFe,
 		NProt:        result.Ret.InfProt.NProt,
+		VerAplic:     result.Ret.InfProt.VerAplic,
 		DhRecbto:     result.Ret.InfProt.DhRecbto,
 	}, nil
 }
@@ -333,10 +336,10 @@ var tiposManifestacao = map[string]struct {
 	Desc      string
 	ExigeJust bool
 }{
-	"ciencia":          {"210210", "Ciência da Operação", false},
-	"confirmacao":      {"210200", "Confirmação da Operação", false},
-	"desconhecimento":  {"210220", "Desconhecimento da Operação", false},
-	"nao_realizada":    {"210240", "Operação não Realizada", true},
+	"ciencia":         {"210210", "Ciência da Operação", false},
+	"confirmacao":     {"210200", "Confirmação da Operação", false},
+	"desconhecimento": {"210220", "Desconhecimento da Operação", false},
+	"nao_realizada":   {"210240", "Operação não Realizada", true},
 }
 
 // Manifestar registra uma manifestação do destinatário para uma NF-e recebida.

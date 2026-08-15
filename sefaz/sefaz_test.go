@@ -488,3 +488,23 @@ func TestAutorizar_Sincrono_ProtocoloEmbutido(t *testing.T) {
 	}
 }
 
+
+// TestMontarNFeProcPreencheTpAmb cobre bug real: o nfeProc gravado como
+// documento fiscal saía com <tpAmb></tpAmb> e <verAplic></verAplic> vazios,
+// violando o procNFe_v4.00.xsd — o contador leva esse XML pro sistema dele.
+func TestMontarNFeProcPreencheTpAmb(t *testing.T) {
+	proc := string(sefaz.MontarNFeProc([]byte(`<NFe><infNFe/></NFe>`), sefaz.ProtNFe{
+		TpAmb: "2", VerAplic: "SVRS202601", ChNFe: "5226083415260900010655001000000004157115039",
+		DhRecbto: "2026-08-14T21:32:47-03:00", NProt: "152260027596044", CStat: "100",
+		XMotivo: "Autorizado o uso da NF-e",
+	}))
+
+	for _, esperado := range []string{"<tpAmb>2</tpAmb>", "<verAplic>SVRS202601</verAplic>"} {
+		if !strings.Contains(proc, esperado) {
+			t.Errorf("nfeProc nao contem %s", esperado)
+		}
+	}
+	if strings.Contains(proc, "<tpAmb></tpAmb>") || strings.Contains(proc, "<verAplic></verAplic>") {
+		t.Error("nfeProc ainda tem campo obrigatorio vazio")
+	}
+}

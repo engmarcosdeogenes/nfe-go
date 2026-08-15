@@ -81,6 +81,8 @@ func (cl *Cliente) EnviarLote(ctx context.Context, lote LoteNFe) (*RetornoEnvioL
 	// lote assíncrono pra consultar depois com NFeRetAutorizacao.
 	type xmlProt struct {
 		InfProt struct {
+			TpAmb    string `xml:"tpAmb"`
+			VerAplic string `xml:"verAplic"`
 			ChNFe    string `xml:"chNFe"`
 			DhRecbto string `xml:"dhRecbto"`
 			NProt    string `xml:"nProt"`
@@ -112,6 +114,7 @@ func (cl *Cliente) EnviarLote(ctx context.Context, lote LoteNFe) (*RetornoEnvioL
 	if len(ret.ProtNFe) > 0 {
 		p := ret.ProtNFe[0].InfProt
 		out.ProtNFe = &ProtNFe{
+			TpAmb: p.TpAmb, VerAplic: p.VerAplic,
 			ChNFe: p.ChNFe, DhRecbto: p.DhRecbto, NProt: p.NProt,
 			DigVal: p.DigVal, CStat: p.CStat, XMotivo: p.XMotivo,
 		}
@@ -123,19 +126,21 @@ func (cl *Cliente) EnviarLote(ctx context.Context, lote LoteNFe) (*RetornoEnvioL
 
 // ProtNFe contém o protocolo de autorização de uma NF-e individual dentro do lote.
 type ProtNFe struct {
-	ChNFe   string `xml:"chNFe"`   // chave de acesso 44 dígitos
+	TpAmb    string `xml:"tpAmb"`    // 1=produção 2=homologação
+	VerAplic string `xml:"verAplic"` // versão do aplicativo da SEFAZ
+	ChNFe    string `xml:"chNFe"`    // chave de acesso 44 dígitos
 	DhRecbto string `xml:"dhRecbto"`
-	NProt   string `xml:"nProt"`   // número do protocolo de autorização
-	DigVal  string `xml:"digVal"`  // DigestValue (SHA-1 da NF-e)
-	CStat   string `xml:"cStat"`   // 100 = autorizada
-	XMotivo string `xml:"xMotivo"`
+	NProt    string `xml:"nProt"`  // número do protocolo de autorização
+	DigVal   string `xml:"digVal"` // DigestValue (SHA-1 da NF-e)
+	CStat    string `xml:"cStat"`  // 100 = autorizada
+	XMotivo  string `xml:"xMotivo"`
 }
 
 // RetornoConsultaLote é o retorno do NFeRetAutorizacao.
 type RetornoConsultaLote struct {
 	RetornoSEFAZ
-	NRec      string    `xml:"nRec"`
-	ProtNFes  []ProtNFe // uma por NF-e no lote
+	NRec     string    `xml:"nRec"`
+	ProtNFes []ProtNFe // uma por NF-e no lote
 }
 
 // ConsultarLote consulta o resultado de um lote enviado anteriormente.
@@ -165,6 +170,8 @@ func (cl *Cliente) ConsultarLote(ctx context.Context, nRec string) (*RetornoCons
 
 	type xmlProt struct {
 		InfProt struct {
+			TpAmb    string `xml:"tpAmb"`
+			VerAplic string `xml:"verAplic"`
 			ChNFe    string `xml:"chNFe"`
 			DhRecbto string `xml:"dhRecbto"`
 			NProt    string `xml:"nProt"`
@@ -189,6 +196,8 @@ func (cl *Cliente) ConsultarLote(ctx context.Context, nRec string) (*RetornoCons
 	prots := make([]ProtNFe, len(result.Ret.ProtNFe))
 	for i, p := range result.Ret.ProtNFe {
 		prots[i] = ProtNFe{
+			TpAmb:    p.InfProt.TpAmb,
+			VerAplic: p.InfProt.VerAplic,
 			ChNFe:    p.InfProt.ChNFe,
 			DhRecbto: p.InfProt.DhRecbto,
 			NProt:    p.InfProt.NProt,
@@ -207,6 +216,22 @@ func (cl *Cliente) ConsultarLote(ctx context.Context, nRec string) (*RetornoCons
 
 // ── Helper: autorizar com retry automático ────────────────────────────────────
 
+// ErroLoteRecusado é devolvido quando a SEFAZ recusa o lote inteiro na porta
+// de entrada (schema inválido, certificado errado, emitente não autorizado).
+//
+// Importa distinguir isso de erro de rede/timeout: aqui a SEFAZ respondeu e
+// disse não, então é certo que nenhuma NF-e do lote foi autorizada — quem
+// chama pode devolver a numeração com segurança. Num timeout não dá pra
+// saber, e reutilizar o número arriscaria duplicidade.
+type ErroLoteRecusado struct {
+	CStat   string
+	XMotivo string
+}
+
+func (e *ErroLoteRecusado) Error() string {
+	return fmt.Sprintf("sefaz: envio recusado cStat=%s: %s", e.CStat, e.XMotivo)
+}
+
 // ResultadoAutorizacao reúne o retorno final de uma autorização.
 type ResultadoAutorizacao struct {
 	Autorizada bool
@@ -221,8 +246,8 @@ func (cl *Cliente) Autorizar(ctx context.Context, nfeAssinada []byte, chave stri
 	idLote := fmt.Sprintf("%d", time.Now().UnixMilli())
 
 	ret, err := cl.EnviarLote(ctx, LoteNFe{
-		IDLote:  idLote,
-		NFes:    [][]byte{nfeAssinada},
+		IDLote: idLote,
+		NFes:   [][]byte{nfeAssinada},
 	})
 	if err != nil {
 		return nil, err
@@ -232,7 +257,7 @@ func (cl *Cliente) Autorizar(ctx context.Context, nfeAssinada []byte, chave stri
 	// cStat 104 = lote processado — em envio síncrono (1 NF-e) o protocolo já
 	// vem embutido em ret.ProtNFe, sem precisar consultar o lote depois.
 	if ret.CStat != "103" && ret.CStat != "104" {
-		return nil, fmt.Errorf("sefaz: envio recusado cStat=%s: %s", ret.CStat, ret.XMotivo)
+		return nil, &ErroLoteRecusado{CStat: ret.CStat, XMotivo: ret.XMotivo}
 	}
 
 	if ret.CStat == "104" && ret.ProtNFe != nil {
@@ -242,7 +267,7 @@ func (cl *Cliente) Autorizar(ctx context.Context, nfeAssinada []byte, chave stri
 			Protocolo:  p,
 		}
 		if resultado.Autorizada {
-			resultado.XMLProtocolado = montarNFeProc(nfeAssinada, p)
+			resultado.XMLProtocolado = MontarNFeProc(nfeAssinada, p)
 		}
 		return resultado, nil
 	}
@@ -278,7 +303,7 @@ func (cl *Cliente) Autorizar(ctx context.Context, nfeAssinada []byte, chave stri
 					Protocolo:  p,
 				}
 				if resultado.Autorizada {
-					resultado.XMLProtocolado = montarNFeProc(nfeAssinada, p)
+					resultado.XMLProtocolado = MontarNFeProc(nfeAssinada, p)
 				}
 				return resultado, nil
 			}
@@ -290,13 +315,13 @@ func (cl *Cliente) Autorizar(ctx context.Context, nfeAssinada []byte, chave stri
 	return nil, fmt.Errorf("sefaz: timeout aguardando processamento do lote (nRec=%s)", ret.NRec)
 }
 
-// montarNFeProc embrulha a NF-e assinada com o protocolo de autorização.
+// MontarNFeProc embrulha a NF-e assinada com o protocolo de autorização.
 // Formato: <nfeProc versao="4.00" xmlns="..."><NFe>...</NFe><protNFe>...</protNFe></nfeProc>
-func montarNFeProc(nfeAssinada []byte, p ProtNFe) []byte {
+func MontarNFeProc(nfeAssinada []byte, p ProtNFe) []byte {
 	prot := fmt.Sprintf(
 		`<protNFe versao="4.00"><infProt>`+
 			`<tpAmb>%s</tpAmb>`+
-			`<verAplic></verAplic>`+
+			`<verAplic>%s</verAplic>`+
 			`<chNFe>%s</chNFe>`+
 			`<dhRecbto>%s</dhRecbto>`+
 			`<nProt>%s</nProt>`+
@@ -304,7 +329,7 @@ func montarNFeProc(nfeAssinada []byte, p ProtNFe) []byte {
 			`<cStat>%s</cStat>`+
 			`<xMotivo>%s</xMotivo>`+
 			`</infProt></protNFe>`,
-		"", p.ChNFe, p.DhRecbto, p.NProt, p.DigVal, p.CStat, p.XMotivo,
+		p.TpAmb, p.VerAplic, p.ChNFe, p.DhRecbto, p.NProt, p.DigVal, p.CStat, p.XMotivo,
 	)
 	return []byte(fmt.Sprintf(
 		`<?xml version="1.0" encoding="UTF-8"?>`+
