@@ -1,6 +1,7 @@
 package cert_test
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"os"
@@ -152,5 +153,43 @@ func TestGerarPEMTeste(t *testing.T) {
 	}
 	if !strings.Contains(keyPEM, "BEGIN PRIVATE KEY") {
 		t.Error("keyPEM não contém BEGIN PRIVATE KEY")
+	}
+}
+
+// TestTLSConfigTemCifraRSA cobre bloqueio real de produção: nfe.sefaz.go.gov.br
+// recusa todas as ECDHE e só fecha handshake com DHE (que o Go não implementa)
+// ou RSA (que o Go desabilita por padrão). Sem essas cifras na lista, emitir em
+// produção é impossível — e homologação não pega, porque negocia ECDHE.
+func TestTLSConfigTemCifraRSA(t *testing.T) {
+	pfx, err := cert.GerarCertificadoTeste(cnpjTeste, "senha123")
+	if err != nil {
+		t.Fatalf("gerar cert de teste: %v", err)
+	}
+	c, err := cert.CarregarPFXBytes(pfx, "senha123")
+	if err != nil {
+		t.Fatalf("carregar cert de teste: %v", err)
+	}
+	cfg := c.TLSConfig()
+	if len(cfg.CipherSuites) == 0 {
+		t.Fatal("CipherSuites vazio: volta pro default do Go, que exclui as RSA")
+	}
+
+	var temRSA, temECDHE bool
+	for _, cs := range cfg.CipherSuites {
+		switch cs {
+		case tls.TLS_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_RSA_WITH_AES_256_GCM_SHA384:
+			temRSA = true
+		case tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+			temECDHE = true
+		}
+	}
+	if !temRSA {
+		t.Error("sem cifra RSA: SEFAZ-GO produção recusa o handshake")
+	}
+	if !temECDHE {
+		t.Error("sem cifra ECDHE: perderia forward secrecy onde o servidor suporta")
+	}
+	if cfg.CipherSuites[0] != tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 {
+		t.Error("ECDHE tem que vir primeiro — RSA é fallback, não preferência")
 	}
 }

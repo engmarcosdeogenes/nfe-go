@@ -82,6 +82,24 @@ func (c *Certificado) TLSConfig() *tls.Config {
 		// "tls: no renegotiation". SEFAZ-GO regional (Autorizar) não precisa,
 		// mas ligar aqui não quebra quem já funciona sem.
 		Renegotiation: tls.RenegotiateFreelyAsClient,
+		// A lista precisa ser explícita porque o Go desabilitou por padrão as
+		// cifras sem forward secrecy (troca de chave RSA), e alguns servidores
+		// da SEFAZ só oferecem essas. O caso concreto: nfe.sefaz.go.gov.br
+		// (produção de GO) recusa todas as ECDHE e só fecha com DHE ou RSA —
+		// o Go nunca implementou DHE, então sem as RSA aqui o handshake morre
+		// com "remote error: tls: handshake failure" e a emissão em produção
+		// fica impossível. Homologação de GO negocia ECDHE normalmente, então
+		// isso não aparece em teste de homologação.
+		//
+		// As ECDHE vêm primeiro: onde o servidor souber, é o que será usado.
+		// As RSA são fallback pra servidor antigo, não preferência.
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+		},
 	}
 }
 
