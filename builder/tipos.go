@@ -124,7 +124,10 @@ type Destinatario struct {
 	CNPJ      string       `xml:"CNPJ,omitempty"`
 	CPF       string       `xml:"CPF,omitempty"`
 	XNome     string       `xml:"xNome"`
-	EnderDest EnderecoDest `xml:"enderDest"`
+	// EnderDest é minOccurs=0 no schema: ponteiro pra poder sair fora do XML
+	// quando não há endereço. Emitir o grupo vazio viola TEndereco, cujos
+	// filhos são obrigatórios uma vez que o grupo existe.
+	EnderDest *EnderecoDest `xml:"enderDest,omitempty"`
 	IndIEDest string       `xml:"indIEDest"` // 1=contribuinte, 2=isento, 9=não contrib.
 	IE        string       `xml:"IE,omitempty"`
 	Email     string       `xml:"email,omitempty"`

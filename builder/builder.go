@@ -373,14 +373,26 @@ func montarEmitente(e EntradaEmitente) Emitente {
 }
 
 func montarDest(d EntradaDest) Destinatario {
-	return Destinatario{
+	// indIEDest não tem valor vazio válido no enum. "9" (não contribuinte) é o
+	// caso comum de destinatário sem inscrição estadual informada.
+	indIEDest := d.IndIEDest
+	if indIEDest == "" {
+		indIEDest = "9"
+	}
+
+	dest := Destinatario{
 		CNPJ:      FormatarCNPJ(d.CNPJ),
 		CPF:       d.CPF,
 		XNome:     d.Nome,
-		IndIEDest: d.IndIEDest,
+		IndIEDest: indIEDest,
 		IE:        FormatarIE(d.IE),
 		Email:     d.Email,
-		EnderDest: EnderecoDest{
+	}
+
+	// Sem UF não dá pra montar um enderDest válido — melhor omitir o grupo
+	// inteiro (é minOccurs=0) do que emitir com filhos obrigatórios vazios.
+	if d.End.UF != "" {
+		dest.EnderDest = &EnderecoDest{
 			XLgr:    d.End.Logradouro,
 			Nro:     d.End.Numero,
 			XCpl:    d.End.Complemento,
@@ -392,8 +404,9 @@ func montarDest(d EntradaDest) Destinatario {
 			CPais:   d.End.Pais,
 			XPais:   d.End.NomePais,
 			Fone:    d.End.Fone,
-		},
+		}
 	}
+	return dest
 }
 
 func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
