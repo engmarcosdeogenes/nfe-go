@@ -121,6 +121,13 @@ func FormatarCNPJ(cnpj string) string {
 	return string(out)
 }
 
+// FormatarCPF remove pontuação e retorna só os 11 dígitos. Mesmo filtro do
+// CNPJ, com nome próprio porque o campo é outro: o XSD é estrito (TCpf =
+// "[0-9]{11}") e o usuário digita "123.456.789-00", a forma natural.
+func FormatarCPF(cpf string) string {
+	return FormatarCNPJ(cpf)
+}
+
 // FormatarIE remove pontuação (mantém dígitos e letras -- cobre "ISENTO"
 // e formatos alfanuméricos de algumas UFs).
 func FormatarIE(ie string) string {

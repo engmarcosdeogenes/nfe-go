@@ -191,6 +191,51 @@ func TestIESaiSemPontuacao(t *testing.T) {
 	}
 }
 
+// TestCPFSaiSemPontuacao: CNPJ, IE e CEP já passavam por Formatar*, CPF não —
+// ia cru pro XML. O XSD é estrito (TCpf = "[0-9]{11}"), então um contador
+// digitando "123.456.789-00" (a forma natural, e a mesma que funciona no
+// campo do CNPJ ao lado) levava cStat=225 sem o campo ser nomeado.
+func TestCPFSaiSemPontuacao(t *testing.T) {
+	entrada := entradaExemplo()
+	entrada.Dest.CNPJ = ""
+	entrada.Dest.CPF = "123.456.789-00"
+
+	xmlBytes, _, err := builder.Build(entrada)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	if nfe.InfNFe.Dest.CPF != "12345678900" {
+		t.Errorf("CPF destinatário = %q, esperava só os 11 dígitos 12345678900", nfe.InfNFe.Dest.CPF)
+	}
+}
+
+// TestUFEmitenteInvalidaERecusada: UF só era checada contra vazio, então "go"
+// passava e caía em dois fallbacks silenciosos e divergentes — cUF=99 na chave
+// de acesso (NovaChave) e transmissão pro SVRS em vez da SEFAZ do estado
+// (ObterURL). Nenhum dos dois falhava alto: saía documento fiscal endereçado
+// errado, sem erro nenhum.
+func TestUFEmitenteInvalidaERecusada(t *testing.T) {
+	for _, uf := range []string{"", "go", "Go", "XX", "GOI"} {
+		entrada := entradaExemplo()
+		entrada.Emitente.End.UF = uf
+
+		if _, _, err := builder.Build(entrada); err == nil {
+			t.Errorf("UF %q: Build devia recusar, mas montou a NF-e", uf)
+		}
+	}
+
+	// Sanidade: a UF certa continua passando.
+	if _, _, err := builder.Build(entradaExemplo()); err != nil {
+		t.Fatalf("UF GO devia passar: %v", err)
+	}
+}
+
 func TestChaveAcesso44Digitos(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		chave := builder.NovaChave("GO", "11222333000181", "1", "42", "1", "55", time.Now())

@@ -509,6 +509,61 @@ func TestMontarNFeProcPreencheTpAmb(t *testing.T) {
 	}
 }
 
+// TestMontarNFeProcDigVal é a continuação do bug acima — a correção do tpAmb
+// parou um campo antes do fim. ConsultarProtocolo não devolve digVal, então a
+// remontagem do nfeProc (nota que a SEFAZ autorizou mas cuja emissão caiu no
+// meio) saía com <digVal></digVal>: o campo por onde qualquer receptor confere
+// que o XML não foi adulterado, em branco, num documento que o contador entrega
+// pro cliente. O digest não precisa vir da SEFAZ — já está no <DigestValue> da
+// assinatura embutida.
+func TestMontarNFeProcDigVal(t *testing.T) {
+	const digest = "a1B2c3D4e5F6g7H8i9J0kLmNoPq="
+	assinada := []byte(`<NFe><infNFe/><Signature><SignedInfo><Reference>` +
+		`<DigestValue>` + digest + `</DigestValue></Reference></SignedInfo></Signature></NFe>`)
+
+	// Sem digVal no protocolo: tira da assinatura.
+	proc := string(sefaz.MontarNFeProc(assinada, sefaz.ProtNFe{
+		TpAmb: "2", VerAplic: "SVRS202601", ChNFe: "5226083415260900010655001000000004157115039",
+		DhRecbto: "2026-08-14T21:32:47-03:00", NProt: "152260027596044", CStat: "100",
+		XMotivo: "Autorizado o uso da NF-e",
+	}))
+	if strings.Contains(proc, "<digVal></digVal>") {
+		t.Error("nfeProc saiu com digVal vazio — nunca confere com a assinatura")
+	}
+	if !strings.Contains(proc, "<digVal>"+digest+"</digVal>") {
+		t.Errorf("nfeProc nao pegou o DigestValue da assinatura: %s", proc)
+	}
+
+	// Com digVal no protocolo: o da SEFAZ manda.
+	proc = string(sefaz.MontarNFeProc(assinada, sefaz.ProtNFe{
+		TpAmb: "2", ChNFe: "5226", DigVal: "ZZZ=", NProt: "1", CStat: "100",
+	}))
+	if !strings.Contains(proc, "<digVal>ZZZ=</digVal>") {
+		t.Errorf("digVal do protocolo devia prevalecer: %s", proc)
+	}
+
+	// nProt é minOccurs="0": ausente e vazio não são a mesma coisa.
+	proc = string(sefaz.MontarNFeProc(assinada, sefaz.ProtNFe{TpAmb: "2", ChNFe: "5226", CStat: "204"}))
+	if strings.Contains(proc, "<nProt></nProt>") {
+		t.Error("nProt vazio devia ser omitido, nao emitido em branco")
+	}
+}
+
+// TestNovoClienteRecusaCUFInvalido: cuf vazio é o que sobra de um
+// builder.EstadoCodigo[uf] que não achou a UF. Sem o guarda, ObterURL não acha
+// a tabela do estado e cai no SVRS calado — a nota vai pro autorizador errado.
+func TestNovoClienteRecusaCUFInvalido(t *testing.T) {
+	c := certTeste(t)
+	for _, cuf := range []string{"", "5", "GO", "521"} {
+		if _, err := sefaz.NovoCliente(cuf, sefaz.Homologacao, c); err == nil {
+			t.Errorf("cUF %q: NovoCliente devia recusar", cuf)
+		}
+	}
+	if _, err := sefaz.NovoCliente("52", sefaz.Homologacao, c); err != nil {
+		t.Errorf("cUF 52 (GO) devia passar: %v", err)
+	}
+}
+
 // TestURLDistribuicaoDFe cobre bug real (HTTP 404): os hosts do serviço
 // nacional de distribuição terminam em "1" — "www"/"hom" sem o dígito não
 // existem, e a sincronização de notas recebidas nunca funcionou por isso.

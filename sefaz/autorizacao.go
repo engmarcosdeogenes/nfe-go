@@ -1,6 +1,7 @@
 package sefaz
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"fmt"
@@ -318,18 +319,32 @@ func (cl *Cliente) Autorizar(ctx context.Context, nfeAssinada []byte, chave stri
 // MontarNFeProc embrulha a NF-e assinada com o protocolo de autorização.
 // Formato: <nfeProc versao="4.00" xmlns="..."><NFe>...</NFe><protNFe>...</protNFe></nfeProc>
 func MontarNFeProc(nfeAssinada []byte, p ProtNFe) []byte {
+	// digVal é o campo por onde qualquer software receptor confere que o XML
+	// não foi adulterado. Quando o protocolo não traz o campo — é o caso de
+	// ConsultarProtocolo, cujo retorno não tem digVal —, tira do <DigestValue>
+	// da própria assinatura embutida: é exatamente a mesma informação, e não
+	// depende do parse da resposta da SEFAZ pra estar certa.
+	digVal := p.DigVal
+	if digVal == "" {
+		digVal = extrairTagConteudo(nfeAssinada, "DigestValue")
+	}
+
+	// nProt e digVal são minOccurs="0" no leiauteNFe_v4.00.xsd: ausente e vazio
+	// não significam a mesma coisa. Emitir <digVal></digVal> declara um digest
+	// vazio, que nunca vai bater com a assinatura — omitir é o correto.
 	prot := fmt.Sprintf(
 		`<protNFe versao="4.00"><infProt>`+
 			`<tpAmb>%s</tpAmb>`+
 			`<verAplic>%s</verAplic>`+
 			`<chNFe>%s</chNFe>`+
 			`<dhRecbto>%s</dhRecbto>`+
-			`<nProt>%s</nProt>`+
-			`<digVal>%s</digVal>`+
+			`%s%s`+
 			`<cStat>%s</cStat>`+
 			`<xMotivo>%s</xMotivo>`+
 			`</infProt></protNFe>`,
-		p.TpAmb, p.VerAplic, p.ChNFe, p.DhRecbto, p.NProt, p.DigVal, p.CStat, p.XMotivo,
+		p.TpAmb, p.VerAplic, p.ChNFe, p.DhRecbto,
+		tagOpcional("nProt", p.NProt), tagOpcional("digVal", digVal),
+		p.CStat, p.XMotivo,
 	)
 	return []byte(fmt.Sprintf(
 		`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -338,6 +353,30 @@ func MontarNFeProc(nfeAssinada []byte, p ProtNFe) []byte {
 			`</nfeProc>`,
 		string(removerDeclaracaoXML(nfeAssinada)), prot,
 	))
+}
+
+// tagOpcional devolve o elemento só quando tem conteúdo — pra campo
+// minOccurs="0" do schema, onde emitir a tag vazia muda o significado.
+func tagOpcional(nome, valor string) string {
+	if valor == "" {
+		return ""
+	}
+	return "<" + nome + ">" + valor + "</" + nome + ">"
+}
+
+// extrairTagConteudo lê o conteúdo da primeira ocorrência de <tag>...</tag>.
+func extrairTagConteudo(xmlBytes []byte, tag string) string {
+	abre, fecha := []byte("<"+tag+">"), []byte("</"+tag+">")
+	ini := bytes.Index(xmlBytes, abre)
+	if ini < 0 {
+		return ""
+	}
+	ini += len(abre)
+	fim := bytes.Index(xmlBytes[ini:], fecha)
+	if fim < 0 {
+		return ""
+	}
+	return string(xmlBytes[ini : ini+fim])
 }
 
 func min(a, b time.Duration) time.Duration {

@@ -34,6 +34,13 @@ type Cliente struct {
 // NovoCliente cria um Cliente autenticado com o certificado A1 fornecido.
 // cuf: código IBGE da UF emitente (2 dígitos, ex: "52" para GO).
 func NovoCliente(cuf string, amb Ambiente, c *cert.Certificado) (*Cliente, error) {
+	// cuf vazio é o que sobra de um builder.EstadoCodigo[uf] que não achou a
+	// UF. Sem esse guarda ObterURL não acha a tabela do estado e cai no SVRS
+	// calado — a nota vai pro autorizador errado. Falhar aqui é o único jeito
+	// de o chamador descobrir que a UF da empresa está inválida.
+	if !ehCodigoUF(cuf) {
+		return nil, fmt.Errorf("sefaz: cUF inválido: %q (esperado o código IBGE de 2 dígitos da UF do emitente)", cuf)
+	}
 	tlsCfg := c.TLSConfig()
 	transport := &http.Transport{
 		TLSClientConfig: tlsCfg,
@@ -53,6 +60,21 @@ func NovoClienteTransporte(cuf string, amb Ambiente, rt http.RoundTripper) *Clie
 		amb:  amb,
 		http: &http.Client{Transport: rt, Timeout: 30 * time.Second},
 	}
+}
+
+// ehCodigoUF confere que cuf são 2 dígitos. Não valida contra a lista de UFs
+// de propósito: o serviço de distribuição DFe é nacional e usa "91", que não é
+// UF nenhuma. O que precisa ser barrado é o vazio/lixo.
+func ehCodigoUF(cuf string) bool {
+	if len(cuf) != 2 {
+		return false
+	}
+	for _, c := range cuf {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ── Envelope SOAP ─────────────────────────────────────────────────────────────

@@ -382,7 +382,7 @@ func montarDest(d EntradaDest) Destinatario {
 
 	dest := Destinatario{
 		CNPJ:      FormatarCNPJ(d.CNPJ),
-		CPF:       d.CPF,
+		CPF:       FormatarCPF(d.CPF),
 		XNome:     d.Nome,
 		IndIEDest: indIEDest,
 		IE:        FormatarIE(d.IE),
@@ -677,8 +677,13 @@ func validarEntrada(e EntradaNFe) error {
 	if len(FormatarCNPJ(e.Emitente.CNPJ)) != 14 {
 		return fmt.Errorf("CNPJ do emitente inválido")
 	}
-	if e.Emitente.End.UF == "" {
-		return fmt.Errorf("UF do emitente obrigatória")
+	// UF tem que estar em EstadoCodigo (a lista canônica das 27 siglas), não só
+	// ser não-vazia. UF inválida ("go", "XX") não dava erro nenhum antes: a
+	// chave nascia com cUF=99 (fallback de NovaChave) e a transmissão caía no
+	// SVRS em vez da SEFAZ do estado — documento fiscal endereçado errado, em
+	// silêncio, por dois fallbacks que apontam pra lugares diferentes.
+	if _, ok := EstadoCodigo[e.Emitente.End.UF]; !ok {
+		return fmt.Errorf("UF do emitente inválida: %q (esperado a sigla de 2 letras maiúsculas, ex: \"GO\")", e.Emitente.End.UF)
 	}
 	if len(e.Itens) == 0 {
 		return fmt.Errorf("NF-e sem itens")
