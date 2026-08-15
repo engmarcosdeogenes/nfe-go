@@ -143,3 +143,22 @@ func FormatarCEP(cep string) string {
 	}
 	return string(out)
 }
+
+// fusoUF mapeia as UFs que não estão em -03:00. O Brasil tem 3 fusos em
+// território continental; o resto cai no default de Brasília.
+var fusoUF = map[string]int{
+	"AC": -5,
+	"AM": -4, "MT": -4, "MS": -4, "RO": -4, "RR": -4,
+}
+
+// FusoUF devolve o fuso horário da UF. A SEFAZ recusa NF-e cujo dhEmi esteja
+// à frente do horário de recebimento dela ("Rejeição: Data-Hora de Emissão
+// posterior ao horário de recebimento"), então servidor rodando em UTC não
+// pode usar time.Now() cru — tem que converter pro fuso do emitente.
+func FusoUF(uf string) *time.Location {
+	offset, ok := fusoUF[uf]
+	if !ok {
+		offset = -3
+	}
+	return time.FixedZone(uf, offset*3600)
+}

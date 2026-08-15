@@ -1081,3 +1081,15 @@ func TestModFreteDefault(t *testing.T) {
 		t.Errorf("modFrete = %q, valor explícito nao pode ser sobrescrito", nfe.InfNFe.Transp.ModFrete)
 	}
 }
+
+// TestFusoUF cobre a rejeição "Data-Hora de Emissão posterior ao horário de
+// recebimento", que aparece quando o servidor roda em UTC e manda dhEmi com
+// offset +00:00.
+func TestFusoUF(t *testing.T) {
+	for uf, horas := range map[string]int{"GO": -3, "SP": -3, "AM": -4, "MT": -4, "AC": -5} {
+		_, offset := time.Now().In(builder.FusoUF(uf)).Zone()
+		if offset != horas*3600 {
+			t.Errorf("FusoUF(%q) = %d segundos, esperava %d", uf, offset, horas*3600)
+		}
+	}
+}
