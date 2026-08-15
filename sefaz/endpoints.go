@@ -183,10 +183,12 @@ var endpointsPorUF = map[string]map[Servico]endpoints{
 // ServicoDistribuicaoDFe é nacional — cUF ignorado, URL fixa por ambiente.
 func ObterURL(cUF string, srv Servico, amb Ambiente) string {
 	if srv == ServicoDistribuicaoDFe {
+		// O host tem "1" no fim — "www"/"hom" sem o dígito respondem 404.
+		// Confirmado por GET com mTLS real contra os quatro hosts.
 		if amb == Producao {
-			return "https://www.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx"
+			return "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx"
 		}
-		return "https://hom.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx"
+		return "https://hom1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx"
 	}
 	tabela, ok := endpointsPorUF[cUF]
 	if !ok {

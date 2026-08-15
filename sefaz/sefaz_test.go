@@ -508,3 +508,19 @@ func TestMontarNFeProcPreencheTpAmb(t *testing.T) {
 		t.Error("nfeProc ainda tem campo obrigatorio vazio")
 	}
 }
+
+// TestURLDistribuicaoDFe cobre bug real (HTTP 404): os hosts do serviço
+// nacional de distribuição terminam em "1" — "www"/"hom" sem o dígito não
+// existem, e a sincronização de notas recebidas nunca funcionou por isso.
+func TestURLDistribuicaoDFe(t *testing.T) {
+	casos := map[sefaz.Ambiente]string{
+		sefaz.Producao:    "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx",
+		sefaz.Homologacao: "https://hom1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx",
+	}
+	for amb, esperado := range casos {
+		// cUF é ignorado: o serviço é nacional.
+		if got := sefaz.ObterURL("52", sefaz.ServicoDistribuicaoDFe, amb); got != esperado {
+			t.Errorf("ObterURL(amb=%s) = %q, esperava %q", amb, got, esperado)
+		}
+	}
+}
