@@ -17,6 +17,30 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 )
 
+// Doc envolve *fpdf.Fpdf só pra passar todo texto por tr antes de desenhar.
+// A fonte core "Arial" do PDF (sem TTF embutida) espera bytes cp1252/WinAnsi,
+// não UTF-8 — sem essa tradução, qualquer acento (ç, ã, é...) sai como
+// mojibake no PDF final (ex: "Goiás" virava "GoiÃ¡s"), tanto nos rótulos fixos
+// em português quanto nos dados dinâmicos (nome, endereço). Os outros métodos
+// de *fpdf.Fpdf (Rect, SetFont, SetXY, Image...) não recebem texto do usuário
+// e continuam expostos por embedding, sem precisar de wrapper.
+type Doc struct {
+	*fpdf.Fpdf
+	tr func(string) string
+}
+
+func novoDoc(f *fpdf.Fpdf) *Doc {
+	return &Doc{Fpdf: f, tr: f.UnicodeTranslatorFromDescriptor("")}
+}
+
+func (d *Doc) CellFormat(w, h float64, txtStr, borderStr string, ln int, alignStr string, fill bool, link int, linkStr string) {
+	d.Fpdf.CellFormat(w, h, d.tr(txtStr), borderStr, ln, alignStr, fill, link, linkStr)
+}
+
+func (d *Doc) MultiCell(w, h float64, txtStr, borderStr, alignStr string, fill bool) {
+	d.Fpdf.MultiCell(w, h, d.tr(txtStr), borderStr, alignStr, fill)
+}
+
 // Gerar recebe o XML de uma NF-e (assinada ou nfeProc com protocolo)
 // e retorna os bytes do PDF do DANFE.
 func Gerar(nfeXML []byte) ([]byte, error) {
@@ -39,7 +63,7 @@ const (
 // ── Renderização ──────────────────────────────────────────────────────────────
 
 func renderizar(d *DadosDANFE) ([]byte, error) {
-	pdf := fpdf.New("P", "mm", "A4", "")
+	pdf := novoDoc(fpdf.New("P", "mm", "A4", ""))
 	pdf.SetMargins(margem, margem, margem)
 	pdf.SetAutoPageBreak(true, 5)
 	pdf.AddPage()
@@ -47,8 +71,11 @@ func renderizar(d *DadosDANFE) ([]byte, error) {
 	// Fonte padrão
 	pdf.SetFont("Arial", "", 7)
 
+	// ── Bloco 0: Canhoto de recebimento ───────────────────────────────────────
+	y := renderCanhoto(pdf, d)
+
 	// ── Bloco 1: Cabeçalho ────────────────────────────────────────────────────
-	y := renderCabecalho(pdf, d)
+	y = renderCabecalho(pdf, d, y)
 
 	// ── Bloco 2: Chave de acesso + barcode ────────────────────────────────────
 	y = renderChave(pdf, d, y)
@@ -89,14 +116,91 @@ func renderizar(d *DadosDANFE) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// ── Canhoto de recebimento ───────────────────────────────────────────────────
+
+// renderCanhoto desenha o "canhoto" — faixa destacável no topo do DANFE onde
+// o recebedor assina confirmando o recebimento, com linha tracejada de corte
+// abaixo. É seção obrigatória do layout oficial (Manual de Orientação do
+// Contribuinte da NF-e), ausente até 17/08/2026 — não aparecia em nenhuma
+// DANFE gerada pelo sistema, só nas do concorrente (Alterdata).
+func renderCanhoto(pdf *Doc, d *DadosDANFE) float64 {
+	y := margem
+	lw := larguraUtil
+	altCanhoto := 16.0
+
+	wEsq := lw * 0.78
+	wDir := lw - wEsq
+
+	setarBorda(pdf)
+	pdf.Rect(margem, y, wEsq, altCanhoto, "D")
+	pdf.Rect(margem+wEsq, y, wDir, altCanhoto, "D")
+
+	nome := d.EmitNome
+	if d.EmitFantasia != "" {
+		nome = d.EmitFantasia
+	}
+	endDest := d.DestEnd
+	endStr := endDest.Logradouro
+	if endDest.Numero != "" {
+		endStr += ", " + endDest.Numero
+	}
+	if endDest.Bairro != "" {
+		endStr += " - " + endDest.Bairro
+	}
+	if endDest.Municipio != "" {
+		endStr += " - " + endDest.Municipio
+	}
+	if endDest.UF != "" {
+		endStr += "/" + endDest.UF
+	}
+	recebemos := fmt.Sprintf(
+		"RECEBEMOS DE %s OS PRODUTOS/SERVIÇOS CONSTANTES NA NOTA FISCAL ELETRÔNICA INDICADA AO LADO - DESTINATÁRIO: %s - %s - EMISSÃO: %s - VALOR TOTAL: R$ %s",
+		nome, d.DestNome, endStr, d.DataEmissao, formatarMoeda(d.VNF),
+	)
+	pdf.SetFont("Arial", "", 6)
+	pdf.SetTextColor(0, 0, 0)
+	pdf.SetXY(margem+1, y+0.5)
+	pdf.MultiCell(wEsq-2, 3, recebemos, "", "L", false)
+
+	wData := wEsq * 0.3
+	pdf.SetFont("Arial", "", 5)
+	pdf.SetTextColor(80, 80, 80)
+	pdf.SetXY(margem+1, y+altCanhoto-4)
+	pdf.CellFormat(wData-1, 3, "DATA DE RECEBIMENTO", "", 0, "L", false, 0, "")
+	pdf.SetXY(margem+wData+1, y+altCanhoto-4)
+	pdf.CellFormat(wEsq-wData-2, 3, "IDENTIFICAÇÃO E ASSINATURA DO RECEBEDOR", "", 0, "L", false, 0, "")
+	setarBorda(pdf)
+	pdf.Line(margem+wData, y+altCanhoto-5, margem+wData, y+altCanhoto)
+
+	pdf.SetFont("Arial", "B", 8)
+	pdf.SetTextColor(0, 0, 0)
+	pdf.SetXY(margem+wEsq+1, y+1)
+	pdf.CellFormat(wDir-2, 4, "NF-e", "", 2, "L", false, 0, "")
+	pdf.SetFont("Arial", "", 6)
+	pdf.SetX(margem + wEsq + 1)
+	pdf.CellFormat(wDir-2, 3.5, "Nº: "+d.NumeroNota, "", 2, "L", false, 0, "")
+	pdf.SetX(margem + wEsq + 1)
+	pdf.CellFormat(wDir-2, 3.5, "Série: "+d.Serie, "", 2, "L", false, 0, "")
+
+	y += altCanhoto
+
+	pdf.SetDrawColor(0, 0, 0)
+	pdf.SetLineWidth(0.15)
+	pdf.SetDashPattern([]float64{1, 1}, 0)
+	pdf.Line(margem, y+1.5, margem+lw, y+1.5)
+	pdf.SetDashPattern([]float64{}, 0)
+
+	return y + 3
+}
+
 // ── Funções de helpers de desenho ─────────────────────────────────────────────
 
-func setarBorda(pdf *fpdf.Fpdf) {
+func setarBorda(pdf *Doc) {
 	pdf.SetDrawColor(150, 150, 150)
 	pdf.SetLineWidth(0.2)
 }
 
-func celulaCampo(pdf *fpdf.Fpdf, x, y, w, h float64, label, valor string) {
+func celulaCampo(pdf *Doc, x, y, w, h float64, label, valor string) {
 	setarBorda(pdf)
 	pdf.Rect(x, y, w, h, "D")
 	pdf.SetXY(x+1, y+0.5)
@@ -111,8 +215,7 @@ func celulaCampo(pdf *fpdf.Fpdf, x, y, w, h float64, label, valor string) {
 
 // ── Cabeçalho ─────────────────────────────────────────────────────────────────
 
-func renderCabecalho(pdf *fpdf.Fpdf, d *DadosDANFE) float64 {
-	y := margem
+func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
 	altCab := 30.0
@@ -210,11 +313,13 @@ func renderCabecalho(pdf *fpdf.Fpdf, d *DadosDANFE) float64 {
 		pdf.CellFormat(wDir-2, 4, d.NumProtocolo, "", 2, "L", false, 0, "")
 	}
 
-	// Homologação watermark
+	// Homologação watermark — posição fixa no centro vertical da página (não
+	// relativa ao y do cabeçalho), pra não precisar reajustar toda vez que um
+	// bloco novo (ex: canhoto) mudar a altura do que vem antes.
 	if d.TpAmb == "2" {
 		pdf.SetFont("Arial", "B", 48)
 		pdf.SetTextColor(220, 220, 220)
-		pdf.SetXY(margem, y+60)
+		pdf.SetXY(margem, 140)
 		pdf.CellFormat(lw, 20, "SEM VALOR FISCAL", "", 0, "C", false, 0, "")
 		pdf.SetTextColor(0, 0, 0)
 	}
@@ -224,7 +329,7 @@ func renderCabecalho(pdf *fpdf.Fpdf, d *DadosDANFE) float64 {
 
 // ── Chave de acesso ───────────────────────────────────────────────────────────
 
-func renderChave(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+func renderChave(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	altBloco := 18.0
 	lw := larguraUtil
 
@@ -264,7 +369,7 @@ func renderChave(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
 
 // ── Destinatário ──────────────────────────────────────────────────────────────
 
-func renderDestinatario(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+func renderDestinatario(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 	alt := 22.0
 
@@ -319,7 +424,7 @@ func renderDestinatario(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
 
 // ── Itens ─────────────────────────────────────────────────────────────────────
 
-func renderItens(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
 	// Cabeçalho da tabela
@@ -389,7 +494,7 @@ func renderItens(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
 		altLinha := 5.0
 		descW := cols[2].w - 2
 		pdf.SetFont("Arial", "", 6)
-		linhasDesc := pdf.SplitLines([]byte(item.XProd), descW)
+		linhasDesc := pdf.SplitLines([]byte(pdf.tr(item.XProd)), descW)
 		if len(linhasDesc) > 1 {
 			altLinha = float64(len(linhasDesc)) * 3.5
 		}
@@ -414,7 +519,7 @@ func renderItens(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
 
 // ── Totais ────────────────────────────────────────────────────────────────────
 
-func renderTotais(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+func renderTotais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
 	pdf.SetFont("Arial", "B", 7)
@@ -459,7 +564,7 @@ func renderTotais(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
 
 // ── Transporte ────────────────────────────────────────────────────────────────
 
-func renderTransporte(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+func renderTransporte(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
 	pdf.SetFont("Arial", "B", 7)
@@ -513,7 +618,7 @@ func renderTransporte(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
 
 // ── Duplicatas ────────────────────────────────────────────────────────────────
 
-func renderDuplicatas(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+func renderDuplicatas(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
 	// Cabeçalho da seção
@@ -572,7 +677,7 @@ func renderDuplicatas(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
 
 // ── Pagamento ─────────────────────────────────────────────────────────────────
 
-func renderPagamento(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+func renderPagamento(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
 	pdf.SetFont("Arial", "B", 7)
@@ -594,7 +699,7 @@ func renderPagamento(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
 
 // ── Dados adicionais ──────────────────────────────────────────────────────────
 
-func renderDadosAdicionais(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) {
+func renderDadosAdicionais(pdf *Doc, d *DadosDANFE, y float64) {
 	lw := larguraUtil
 
 	if d.InfCpl == "" && d.InfAdFisco == "" {
@@ -713,11 +818,11 @@ func GerarDANFENFCe(xmlNFeProc []byte) ([]byte, error) {
 }
 
 func renderizarCupom(d *DadosDANFE) ([]byte, error) {
-	pdf := fpdf.NewCustom(&fpdf.InitType{
+	pdf := novoDoc(fpdf.NewCustom(&fpdf.InitType{
 		OrientationStr: "P",
 		UnitStr:        "mm",
 		Size:           fpdf.SizeType{Wd: cupomLarg, Ht: 500.0},
-	})
+	}))
 	pdf.SetMargins(cupomMarg, cupomMarg, cupomMarg)
 	pdf.SetAutoPageBreak(false, 0)
 	pdf.AddPage()
@@ -754,7 +859,7 @@ func renderizarCupom(d *DadosDANFE) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func cupomCabecalho(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+func cupomCabecalho(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	nome := d.EmitNome
 	if d.EmitFantasia != "" {
 		nome = d.EmitFantasia
@@ -803,14 +908,14 @@ func cupomCabecalho(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
 	return pdf.GetY()
 }
 
-func cupomSeparador(pdf *fpdf.Fpdf, y float64) float64 {
+func cupomSeparador(pdf *Doc, y float64) float64 {
 	pdf.SetDrawColor(0, 0, 0)
 	pdf.SetLineWidth(0.2)
 	pdf.Line(cupomMarg, y+1, cupomMarg+cupomLW, y+1)
 	return y + 3
 }
 
-func cupomItens(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+func cupomItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	pdf.SetFont("Arial", "B", 7)
 	pdf.SetXY(cupomMarg, y)
 	pdf.CellFormat(cupomLW, 4, "ITEM  DESCRIÇÃO", "", 2, "L", false, 0, "")
@@ -835,7 +940,7 @@ func cupomItens(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
 	return y
 }
 
-func cupomTotais(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+func cupomTotais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	wL := cupomLW * 0.55
 	wR := cupomLW - wL
 
@@ -864,7 +969,7 @@ func cupomTotais(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
 	return y
 }
 
-func cupomPagamento(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+func cupomPagamento(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	if len(d.Pagamentos) == 0 {
 		return y
 	}
@@ -886,7 +991,7 @@ func cupomPagamento(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
 	return y
 }
 
-func cupomQRCode(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+func cupomQRCode(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	if d.QrCode == "" {
 		return y
 	}
@@ -904,7 +1009,7 @@ func cupomQRCode(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
 	return y + tamQR + 2
 }
 
-func cupomChaveAcesso(pdf *fpdf.Fpdf, d *DadosDANFE, y float64) float64 {
+func cupomChaveAcesso(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	if d.ChaveAcesso == "" {
 		return y
 	}

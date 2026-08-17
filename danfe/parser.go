@@ -151,25 +151,46 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 		CEP     string `xml:"CEP"`
 		Fone    string `xml:"fone"`
 	}
+	// xmlImposto cobre as 12 variantes de grupo ICMS que builder.montarImposto
+	// realmente emite (builder/builder.go, builder/tipos.go) — cada variante
+	// carrega o próprio código em <CST>/<CSOSN> (ex: <ICMSSN102><CSOSN>300
+	// </CSOSN></ICMSSN102> é válido: o wrapper agrupa vários CSOSN, quem
+	// identifica o código de verdade é o filho, não o nome da tag). Sem isso o
+	// item.CST nunca era preenchido — a versão antiga só tinha `pICMS`
+	// (alíquota, mal nomeado "PCST") pra 2 das 12 variantes.
 	type xmlImposto struct {
 		ICMS struct {
 			ICMS00 *struct {
-				PCST   string `xml:"pICMS"`
-				VBC    string `xml:"vBC"`
-				VICMS  string `xml:"vICMS"`
+				CST   string
+				PICMS string `xml:"pICMS"`
+				VBC   string `xml:"vBC"`
+				VICMS string `xml:"vICMS"`
 			} `xml:"ICMS00"`
+			ICMS10 *struct {
+				CST   string
+				PICMS string `xml:"pICMS"`
+				VBC   string `xml:"vBC"`
+				VICMS string `xml:"vICMS"`
+			} `xml:"ICMS10"`
 			ICMS20 *struct {
-				PCST   string `xml:"pICMS"`
-				VBC    string `xml:"vBC"`
-				VICMS  string `xml:"vICMS"`
+				CST   string
+				PICMS string `xml:"pICMS"`
+				VBC   string `xml:"vBC"`
+				VICMS string `xml:"vICMS"`
 			} `xml:"ICMS20"`
-			ICMS40 *struct{} `xml:"ICMS40"`
-			ICMSSN102 *struct{} `xml:"ICMSSN102"`
-			ICMSSN500 *struct{} `xml:"ICMSSN500"`
+			ICMS40    *struct{ CST string }   `xml:"ICMS40"`
+			ICMS60    *struct{ CST string }   `xml:"ICMS60"`
+			ICMS90    *struct{ CST string }   `xml:"ICMS90"`
+			ICMSSN101 *struct{ CSOSN string } `xml:"ICMSSN101"`
+			ICMSSN102 *struct{ CSOSN string } `xml:"ICMSSN102"`
+			ICMSSN201 *struct{ CSOSN string } `xml:"ICMSSN201"`
+			ICMSSN202 *struct{ CSOSN string } `xml:"ICMSSN202"`
+			ICMSSN500 *struct{ CSOSN string } `xml:"ICMSSN500"`
+			ICMSSN900 *struct{ CSOSN string } `xml:"ICMSSN900"`
 		} `xml:"ICMS"`
 		IPI *struct {
-			PIPI  string `xml:"IPITrib>pIPI"`
-			VIPI  string `xml:"IPITrib>vIPI"`
+			PIPI string `xml:"IPITrib>pIPI"`
+			VIPI string `xml:"IPITrib>vIPI"`
 		} `xml:"IPI"`
 	}
 	type xmlDet struct {
@@ -393,14 +414,40 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			VProd:   parseFloat(det.Prod.VProd),
 		}
 		imp := det.Imposto
-		if imp.ICMS.ICMS00 != nil {
+		switch {
+		case imp.ICMS.ICMS00 != nil:
+			item.CST = imp.ICMS.ICMS00.CST
 			item.VBC = parseFloat(imp.ICMS.ICMS00.VBC)
 			item.ICMS = parseFloat(imp.ICMS.ICMS00.VICMS)
-			item.AliqICMS = parseFloat(imp.ICMS.ICMS00.PCST)
-		} else if imp.ICMS.ICMS20 != nil {
+			item.AliqICMS = parseFloat(imp.ICMS.ICMS00.PICMS)
+		case imp.ICMS.ICMS10 != nil:
+			item.CST = imp.ICMS.ICMS10.CST
+			item.VBC = parseFloat(imp.ICMS.ICMS10.VBC)
+			item.ICMS = parseFloat(imp.ICMS.ICMS10.VICMS)
+			item.AliqICMS = parseFloat(imp.ICMS.ICMS10.PICMS)
+		case imp.ICMS.ICMS20 != nil:
+			item.CST = imp.ICMS.ICMS20.CST
 			item.VBC = parseFloat(imp.ICMS.ICMS20.VBC)
 			item.ICMS = parseFloat(imp.ICMS.ICMS20.VICMS)
-			item.AliqICMS = parseFloat(imp.ICMS.ICMS20.PCST)
+			item.AliqICMS = parseFloat(imp.ICMS.ICMS20.PICMS)
+		case imp.ICMS.ICMS40 != nil:
+			item.CST = imp.ICMS.ICMS40.CST
+		case imp.ICMS.ICMS60 != nil:
+			item.CST = imp.ICMS.ICMS60.CST
+		case imp.ICMS.ICMS90 != nil:
+			item.CST = imp.ICMS.ICMS90.CST
+		case imp.ICMS.ICMSSN101 != nil:
+			item.CST = imp.ICMS.ICMSSN101.CSOSN
+		case imp.ICMS.ICMSSN102 != nil:
+			item.CST = imp.ICMS.ICMSSN102.CSOSN
+		case imp.ICMS.ICMSSN201 != nil:
+			item.CST = imp.ICMS.ICMSSN201.CSOSN
+		case imp.ICMS.ICMSSN202 != nil:
+			item.CST = imp.ICMS.ICMSSN202.CSOSN
+		case imp.ICMS.ICMSSN500 != nil:
+			item.CST = imp.ICMS.ICMSSN500.CSOSN
+		case imp.ICMS.ICMSSN900 != nil:
+			item.CST = imp.ICMS.ICMSSN900.CSOSN
 		}
 		if imp.IPI != nil {
 			item.IPI = parseFloat(imp.IPI.VIPI)

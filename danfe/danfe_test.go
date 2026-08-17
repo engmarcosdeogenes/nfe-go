@@ -1,6 +1,9 @@
 package danfe_test
 
 import (
+	"bytes"
+	"compress/zlib"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -476,6 +479,129 @@ func TestGerarDANFENFCe(t *testing.T) {
 	}
 	t.Logf("NFC-e cupom OK — %d bytes | Mod=%s | QrCode[..40]=%s",
 		len(pdfBytes), dados.Mod, dados.QrCode[:40])
+}
+
+// TestGerarDANFE_AcentosNaoQuebram cobre o bug real achado em 17/08/2026: a
+// fonte core "Arial" do PDF (sem TTF embutida) espera bytes cp1252, e o
+// código passava string UTF-8 crua — todo acento saía como mojibake no PDF
+// final (ex: "SÉRIE" virava "SÃ‰RIE"). Decompacta a stream de conteúdo do PDF
+// e procura pela sequência de bytes correta em cp1252, não em UTF-8 cru.
+func TestGerarDANFE_AcentosNaoQuebram(t *testing.T) {
+	nfeXML := nfeAssinadaParaTeste(t)
+	pdfBytes, err := danfe.Gerar(nfeXML)
+	if err != nil {
+		t.Fatalf("Gerar: %v", err)
+	}
+
+	conteudo := decodificarStreamsPDF(t, pdfBytes)
+
+	// "SÉRIE" em cp1252: 'S' 0xC9 'R' 'I' 'E'. Em UTF-8 cru (o bug), o É vira
+	// 2 bytes (0xC3 0x89) em vez de 1 — a assinatura exata do mojibake.
+	mojibake := []byte{'S', 0xC3, 0x89, 'R', 'I', 'E'}
+	if bytes.Contains(conteudo, mojibake) {
+		t.Error("PDF contém 'SÃ‰RIE' — texto UTF-8 cru não traduzido pra cp1252 (mojibake)")
+	}
+
+	correto := []byte{'S', 0xC9, 'R', 'I', 'E'}
+	if !bytes.Contains(conteudo, correto) {
+		t.Error("rótulo 'SÉRIE' não apareceu com o byte cp1252 correto (0xC9) no PDF")
+	}
+}
+
+// decodificarStreamsPDF concatena o conteúdo de todas as streams
+// FlateDecode do PDF — onde o fpdf grava o texto desenhado.
+func decodificarStreamsPDF(t *testing.T, pdfBytes []byte) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	restante := pdfBytes
+	for {
+		inicio := bytes.Index(restante, []byte("stream"))
+		if inicio == -1 {
+			break
+		}
+		corpo := restante[inicio+len("stream"):]
+		corpo = bytes.TrimPrefix(corpo, []byte("\r\n"))
+		corpo = bytes.TrimPrefix(corpo, []byte("\n"))
+		compactado, resto, achou := bytes.Cut(corpo, []byte("endstream"))
+		if !achou {
+			break
+		}
+		r, err := zlib.NewReader(bytes.NewReader(compactado))
+		if err == nil {
+			decodificado, _ := io.ReadAll(r)
+			out.Write(decodificado)
+			r.Close()
+		}
+		restante = resto
+	}
+	return out.Bytes()
+}
+
+// TestParseNFeXML_CSOSNPreenchidoNoItem cobre o segundo bug de 17/08/2026:
+// item.CST nunca era preenchido, pra nenhum regime — a struct só capturava a
+// alíquota (mal nomeada "PCST") pra 2 das 12 variantes de grupo ICMS que o
+// builder emite. Usa CSOSN=300 (Imune) de propósito: foi o código real da
+// primeira emissão de produção (nota 462/463), que fica dentro do wrapper
+// <ICMSSN102> (grupo compartilhado por 102/103/300/400 — quem diferencia é o
+// <CSOSN> filho, não o nome da tag).
+func TestParseNFeXML_CSOSNPreenchidoNoItem(t *testing.T) {
+	entrada := builder.EntradaNFe{
+		Serie: "1", NNF: "1", DhEmi: time.Date(2026, 8, 17, 10, 0, 0, 0, time.FixedZone("BRT", -3*3600)),
+		NatOp: "VENDA", TpAmb: "2", FinNFe: "1", IndFinal: "0", IndPres: "1",
+		Emitente: builder.EntradaEmitente{
+			CNPJ: "11222333000181", Nome: "TESTE LTDA", IE: "123456789", CRT: "1",
+			End: builder.EntradaEndereco{
+				Logradouro: "Rua X", Numero: "1", Bairro: "Centro",
+				CodigoMun: "5208707", Municipio: "Goiania", UF: "GO",
+				CEP: "74000000", Pais: "1058", NomePais: "Brasil",
+			},
+		},
+		Dest: builder.EntradaDest{
+			CNPJ: "99888777000155", Nome: "CLIENTE SA", IndIEDest: "9",
+			End: builder.EntradaEndereco{
+				Logradouro: "Av Y", Numero: "2", Bairro: "Centro",
+				CodigoMun: "5208707", Municipio: "Goiania", UF: "GO",
+				CEP: "74100000", Pais: "1058", NomePais: "Brasil",
+			},
+		},
+		Itens: []builder.EntradaItem{
+			{
+				CProd: "IMU-001", CEAN: "SEM GTIN", Nome: "PRODUTO IMUNE",
+				NCM: "49029000", CFOP: "5101", Unidade: "UND",
+				Quantidade: 1, VUnitario: 100,
+				ICMS: builder.EntradaICMS{CSOSN: "300"},
+			},
+		},
+		Frete: builder.EntradaFrete{Modalidade: "9"},
+	}
+
+	xmlBytes, _, err := builder.Build(entrada)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	pfx, err := cert.GerarCertificadoTeste("11222333000181", "teste")
+	if err != nil {
+		t.Fatalf("GerarCertificadoTeste: %v", err)
+	}
+	c, err := cert.CarregarPFXBytes(pfx, "teste")
+	if err != nil {
+		t.Fatalf("CarregarPFX: %v", err)
+	}
+	assinado, err := sign.AssinarNFe(xmlBytes, c)
+	if err != nil {
+		t.Fatalf("AssinarNFe: %v", err)
+	}
+
+	dados, err := danfe.ParseNFeXML(assinado)
+	if err != nil {
+		t.Fatalf("ParseNFeXML: %v", err)
+	}
+	if len(dados.Itens) != 1 {
+		t.Fatalf("esperava 1 item, got %d", len(dados.Itens))
+	}
+	if dados.Itens[0].CST != "300" {
+		t.Errorf("CST/CSOSN do item = %q, esperava \"300\"", dados.Itens[0].CST)
+	}
 }
 
 func TestParseNFeXML(t *testing.T) {
