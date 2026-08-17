@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	_ "embed"
 	"fmt"
 	"os"
 	"regexp"
@@ -13,6 +14,31 @@ import (
 
 	"software.sslmate.com/src/go-pkcs12"
 )
+
+//go:embed icpbrasil_root.pem
+var icpBrasilRootPEM []byte
+
+// rootCAs devolve o pool de confiança do sistema operacional acrescido da
+// raiz ICP-Brasil v10 + intermediária AC SOLUTI SSL EV G4 (emissora do cert
+// de nfe.sefaz.go.gov.br em produção). O pool padrão do Go (Mozilla/OS) não
+// inclui ICP-Brasil, e o servidor de produção da SEFAZ-GO não manda a cadeia
+// intermediária no handshake — sem isso, todo handshake TLS pra produção
+// falha com "certificate signed by unknown authority", mesmo com o mTLS do
+// cliente correto (achado em 17/08/2026, nunca aparecia em teste porque
+// scripts anteriores rodavam numa máquina Windows, que já confia nessa
+// cadeia via Windows Update).
+//
+// ponytail: só cobre a cadeia da SOLUTI (confirmada em GO). Outro UF/serviço
+// com AC emissora diferente pode precisar de outra intermediária — nesse
+// caso, appendar mais um bloco PEM neste mesmo arquivo.
+func rootCAs() *x509.CertPool {
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	pool.AppendCertsFromPEM(icpBrasilRootPEM)
+	return pool
+}
 
 // Certificado reúne a chave privada e o certificado X.509 do emitente.
 type Certificado struct {
@@ -75,6 +101,7 @@ func (c *Certificado) TLSConfig() *tls.Config {
 	}
 	return &tls.Config{
 		Certificates:       []tls.Certificate{tlsCert},
+		RootCAs:            rootCAs(),
 		InsecureSkipVerify: false,
 		MinVersion:         tls.VersionTLS12,
 		// Ambiente Nacional (hom.nfe.fazenda.gov.br, usado por DistribuirDFe)

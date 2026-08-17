@@ -193,3 +193,37 @@ func TestTLSConfigTemCifraRSA(t *testing.T) {
 		t.Error("ECDHE tem que vir primeiro — RSA é fallback, não preferência")
 	}
 }
+
+// TestTLSConfigConfiaICPBrasil cobre outro bloqueio real de produção:
+// nfe.sefaz.go.gov.br manda só o cert folha (emitido por AC SOLUTI SSL EV
+// G4, sob raiz ICP-Brasil v10), sem a cadeia intermediária — e nenhuma das
+// duas está no pool padrão do Go (Mozilla/OS). Sem RootCAs explícito aqui,
+// o handshake falha com "certificate signed by unknown authority" mesmo com
+// mTLS do cliente correto.
+func TestTLSConfigConfiaICPBrasil(t *testing.T) {
+	pfx, err := cert.GerarCertificadoTeste(cnpjTeste, "senha123")
+	if err != nil {
+		t.Fatalf("gerar cert de teste: %v", err)
+	}
+	c, err := cert.CarregarPFXBytes(pfx, "senha123")
+	if err != nil {
+		t.Fatalf("carregar cert de teste: %v", err)
+	}
+	cfg := c.TLSConfig()
+	if cfg.RootCAs == nil {
+		t.Fatal("RootCAs vazio: volta pro pool padrão do Go, sem ICP-Brasil")
+	}
+	// Assunto exato da intermediária AC SOLUTI SSL EV G4 — subject fixo do
+	// cert embutido em icpbrasil_root.pem, não muda entre execuções.
+	alvo := "AC SOLUTI SSL EV G4"
+	achou := false
+	for _, sub := range cfg.RootCAs.Subjects() { //nolint:staticcheck // Subjects é deprecated mas suficiente pra esse assert
+		if strings.Contains(string(sub), alvo) {
+			achou = true
+			break
+		}
+	}
+	if !achou {
+		t.Errorf("pool não contém %q — intermediária ICP-Brasil não foi embutida", alvo)
+	}
+}
