@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"fmt"
 	"image/png"
+	"time"
 
 	"github.com/boombuler/barcode"
 	"github.com/boombuler/barcode/code128"
@@ -57,7 +58,6 @@ const (
 	margem      = 5.0  // margem lateral em mm
 	larguraPage = 210.0
 	larguraUtil = larguraPage - 2*margem
-	corBorda    = "cinza"
 )
 
 // ── Renderização ──────────────────────────────────────────────────────────────
@@ -77,8 +77,8 @@ func renderizar(d *DadosDANFE) ([]byte, error) {
 	// ── Bloco 1: Cabeçalho ────────────────────────────────────────────────────
 	y = renderCabecalho(pdf, d, y)
 
-	// ── Bloco 2: Chave de acesso + barcode ────────────────────────────────────
-	y = renderChave(pdf, d, y)
+	// ── Bloco 1b: Natureza da operação + protocolo, IE/IM/IEST/CNPJ ──────────
+	y = renderNatureza(pdf, d, y)
 
 	// ── Bloco 3: Destinatário ─────────────────────────────────────────────────
 	y = renderDestinatario(pdf, d, y)
@@ -103,7 +103,9 @@ func renderizar(d *DadosDANFE) ([]byte, error) {
 	}
 
 	// ── Bloco 9: Dados adicionais ─────────────────────────────────────────────
-	renderDadosAdicionais(pdf, d, y)
+	y = renderDadosAdicionais(pdf, d, y)
+
+	renderRodape(pdf, y)
 
 	if pdf.Err() {
 		return nil, fmt.Errorf("danfe: fpdf: %s", pdf.Error())
@@ -218,14 +220,19 @@ func celulaCampo(pdf *Doc, x, y, w, h float64, label, valor string) {
 func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
-	altCab := 30.0
+	altCab := 34.0
 
-	// Bloco emitente (esq 40%)
-	wEmit := lw * 0.40
+	// Bloco emitente (esq 38%)
+	wEmit := lw * 0.38
 	setarBorda(pdf)
 	pdf.Rect(margem, y, wEmit, altCab, "D")
+	pdf.SetFont("Arial", "", 5.5)
+	pdf.SetTextColor(80, 80, 80)
+	pdf.SetXY(margem+1, y+0.5)
+	pdf.CellFormat(wEmit-2, 3, "IDENTIFICAÇÃO DO EMITENTE", "", 0, "C", false, 0, "")
+	pdf.SetTextColor(0, 0, 0)
 	pdf.SetFont("Arial", "B", 9)
-	pdf.SetXY(margem+1, y+4)
+	pdf.SetXY(margem+1, y+5)
 	nome := d.EmitNome
 	if d.EmitFantasia != "" {
 		nome = d.EmitFantasia
@@ -236,14 +243,12 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	pdf.SetX(margem + 1)
 	pdf.CellFormat(wEmit-2, 3.5, end.Logradouro+", "+end.Numero, "", 2, "C", false, 0, "")
 	pdf.SetX(margem + 1)
-	pdf.CellFormat(wEmit-2, 3.5, end.Bairro+" - "+end.Municipio+"/"+end.UF, "", 2, "C", false, 0, "")
+	pdf.CellFormat(wEmit-2, 3.5, end.Bairro+" - "+end.CEP, "", 2, "C", false, 0, "")
 	pdf.SetX(margem + 1)
-	pdf.CellFormat(wEmit-2, 3.5, "CEP: "+end.CEP+"  Fone: "+end.Fone, "", 2, "C", false, 0, "")
-	pdf.SetX(margem + 1)
-	pdf.CellFormat(wEmit-2, 3.5, "CNPJ: "+d.EmitCNPJ+"  IE: "+d.EmitIE, "", 2, "C", false, 0, "")
+	pdf.CellFormat(wEmit-2, 3.5, end.Municipio+" - "+end.UF+"  Fone/Fax: "+end.Fone, "", 2, "C", false, 0, "")
 
-	// Bloco central DANFE (centro 20%)
-	wCentro := lw * 0.22
+	// Bloco central DANFE (centro 16%)
+	wCentro := lw * 0.16
 	xCentro := margem + wEmit
 	setarBorda(pdf)
 	pdf.Rect(xCentro, y, wCentro, altCab, "D")
@@ -258,60 +263,49 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	if d.TipoNF == "0" {
 		tipoDesc = "0 - ENTRADA"
 	}
-	pdf.SetXY(xCentro+1, y+19)
-	pdf.CellFormat(wCentro-2, 4, "ENTRADA / SAÍDA", "", 2, "C", false, 0, "")
+	pdf.SetXY(xCentro+1, y+15)
+	pdf.MultiCell(wCentro-2, 3, "0 - ENTRADA\n1 - SAÍDA", "", "L", false)
 	pdf.SetFont("Arial", "B", 12)
-	pdf.SetX(xCentro)
-	pdf.CellFormat(wCentro, 5, tipoDesc[:1], "", 2, "C", false, 0, "")
+	pdf.SetXY(xCentro+wCentro-7, y+15)
+	pdf.CellFormat(6, 8, tipoDesc[:1], "1", 0, "C", false, 0, "")
+	pdf.SetFont("Arial", "", 6)
+	pdf.SetXY(xCentro+1, y+25)
+	nfNum := fmt.Sprintf("%09s", d.NumeroNota)
+	if len(nfNum) == 9 {
+		nfNum = nfNum[0:3] + "." + nfNum[3:6] + "." + nfNum[6:9]
+	}
+	pdf.MultiCell(wCentro-2, 3, "Nº. "+nfNum+"\nSérie "+fmt.Sprintf("%03s", d.Serie)+"\nFolha 1/1", "", "L", false)
 
-	// Bloco NF-e (dir 38%)
+	// Bloco chave de acesso + barcode (dir 46%)
 	wDir := lw - wEmit - wCentro
 	xDir := xCentro + wCentro
 	setarBorda(pdf)
 	pdf.Rect(xDir, y, wDir, altCab, "D")
 
-	// Número e série
-	pdf.SetFont("Arial", "", 5)
-	pdf.SetTextColor(80, 80, 80)
-	pdf.SetXY(xDir+1, y+1)
-	pdf.CellFormat(wDir-2, 3, "NF-e  N°.", "", 0, "L", false, 0, "")
-	pdf.SetFont("Arial", "B", 9)
-	pdf.SetTextColor(0, 0, 0)
-	pdf.SetXY(xDir+1, y+4)
-	nfNum := fmt.Sprintf("%09s", d.NumeroNota)
-	// Formatar: 000.000.001
-	if len(nfNum) == 9 {
-		nfNum = nfNum[0:3] + "." + nfNum[3:6] + "." + nfNum[6:9]
+	wBarcode := 70.0
+	if d.ChaveAcesso != "" {
+		barcodeImg, err := gerarBarcodeCode128(d.ChaveAcesso)
+		if err == nil {
+			imgName := "barcode_chave"
+			pdf.RegisterImageOptionsReader(imgName, fpdf.ImageOptions{ImageType: "PNG"}, bytes.NewReader(barcodeImg))
+			xBarcode := xDir + (wDir-wBarcode)/2
+			pdf.Image(imgName, xBarcode, y+1.5, wBarcode, altBarcode, false, "", 0, "")
+		}
 	}
-	pdf.CellFormat(wDir-2, 5, nfNum, "", 2, "L", false, 0, "")
-	pdf.SetFont("Arial", "", 5)
-	pdf.SetTextColor(80, 80, 80)
-	pdf.SetX(xDir + 1)
-	pdf.CellFormat(wDir-2, 3, "SÉRIE", "", 2, "L", false, 0, "")
-	pdf.SetFont("Arial", "B", 8)
-	pdf.SetTextColor(0, 0, 0)
-	pdf.SetX(xDir + 1)
-	pdf.CellFormat(wDir-2, 4, d.Serie, "", 2, "L", false, 0, "")
-	pdf.SetFont("Arial", "", 5)
-	pdf.SetTextColor(80, 80, 80)
-	pdf.SetX(xDir + 1)
-	pdf.CellFormat(wDir-2, 3, "DATA E HORA DE EMISSÃO", "", 2, "L", false, 0, "")
-	pdf.SetFont("Arial", "", 7)
-	pdf.SetTextColor(0, 0, 0)
-	pdf.SetX(xDir + 1)
-	pdf.CellFormat(wDir-2, 4, d.DataEmissao, "", 2, "L", false, 0, "")
 
-	// Protocolo de autorização
-	if d.NumProtocolo != "" {
-		pdf.SetFont("Arial", "", 5)
-		pdf.SetTextColor(80, 80, 80)
-		pdf.SetX(xDir + 1)
-		pdf.CellFormat(wDir-2, 3, "PROTOCOLO DE AUTORIZAÇÃO DE USO", "", 2, "L", false, 0, "")
-		pdf.SetFont("Arial", "", 6)
-		pdf.SetTextColor(0, 80, 0)
-		pdf.SetX(xDir + 1)
-		pdf.CellFormat(wDir-2, 4, d.NumProtocolo, "", 2, "L", false, 0, "")
-	}
+	pdf.SetFont("Arial", "", 5)
+	pdf.SetTextColor(80, 80, 80)
+	pdf.SetXY(xDir+1, y+12.5)
+	pdf.CellFormat(wDir-2, 3, "CHAVE DE ACESSO", "", 2, "C", false, 0, "")
+	pdf.SetFont("Arial", "B", 7)
+	pdf.SetTextColor(0, 0, 0)
+	pdf.SetX(xDir + 1)
+	pdf.CellFormat(wDir-2, 4, formatarChave(d.ChaveAcesso), "", 2, "C", false, 0, "")
+	pdf.SetFont("Arial", "", 5)
+	pdf.SetTextColor(80, 80, 80)
+	pdf.SetX(xDir + 1)
+	pdf.MultiCell(wDir-2, 3, "Consulta de autenticidade no portal nacional da NF-e\nwww.nfe.fazenda.gov.br/portal ou no site da Sefaz Autorizadora", "", "C", false)
+	pdf.SetTextColor(0, 0, 0)
 
 	// Homologação watermark — posição fixa no centro vertical da página (não
 	// relativa ao y do cabeçalho), pra não precisar reajustar toda vez que um
@@ -327,54 +321,36 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	return y + altCab
 }
 
-// ── Chave de acesso ───────────────────────────────────────────────────────────
+// ── Natureza da operação ──────────────────────────────────────────────────────
 
-// altBarcode é a altura da barra do Code128 — mínimo oficial 0,8cm (MOC 7.0
-// Anexo II - Manual de Especificações Técnicas do DANFE e Código de Barras,
-// item 2 "Código de Barras"). Usamos 1,0cm (o tamanho da tabela de
-// referência do item 3.8.1) pra ficar com folga acima do mínimo, não em
-// cima da linha. Achado real: a versão antiga usava 7mm, abaixo do mínimo.
-const altBarcode = 10.0
-
-func renderChave(pdf *Doc, d *DadosDANFE, y float64) float64 {
-	altBloco := 24.0
+func renderNatureza(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
-	setarBorda(pdf)
-	pdf.Rect(margem, y, lw, altBloco, "D")
-
-	pdf.SetFont("Arial", "", 5)
-	pdf.SetTextColor(80, 80, 80)
-	pdf.SetXY(margem+1, y+1)
-	pdf.CellFormat(lw-2, 3, "CHAVE DE ACESSO", "", 2, "L", false, 0, "")
-
-	pdf.SetFont("Arial", "B", 7.5)
-	pdf.SetTextColor(0, 0, 0)
-	pdf.SetX(margem + 1)
-	pdf.CellFormat(lw-2, 4, formatarChave(d.ChaveAcesso), "", 2, "C", false, 0, "")
-
-	// Barcode Code 128 — largura 80mm já acima do mínimo oficial de 60mm
-	// (6cm) pra impressão não-impacto/laser (é o nosso caso, sempre PDF).
-	yBarcode := y + 8.5
-	if d.ChaveAcesso != "" {
-		barcodeImg, err := gerarBarcodeCode128(d.ChaveAcesso)
-		if err == nil {
-			imgName := "barcode_chave"
-			pdf.RegisterImageOptionsReader(imgName, fpdf.ImageOptions{ImageType: "PNG"}, bytes.NewReader(barcodeImg))
-			xBarcode := margem + (lw-80)/2
-			pdf.Image(imgName, xBarcode, yBarcode, 80, altBarcode, false, "", 0, "")
-		}
+	wNat := lw * 0.68
+	protocolo := d.NumProtocolo
+	if protocolo != "" && d.DataAutorizacao != "" {
+		protocolo += " - " + d.DataAutorizacao
 	}
+	celulaCampo(pdf, margem, y, wNat, 8, "NATUREZA DA OPERAÇÃO", d.NatOp)
+	celulaCampo(pdf, margem+wNat, y, lw-wNat, 8, "PROTOCOLO DE AUTORIZAÇÃO DE USO", protocolo)
+	y += 8
 
-	pdf.SetFont("Arial", "", 5)
-	pdf.SetTextColor(80, 80, 80)
-	pdf.SetXY(margem+1, yBarcode+altBarcode+0.5)
-	consult := "Consulta de autenticidade no portal nacional da NF-e: www.nfe.fazenda.gov.br/portal"
-	pdf.CellFormat(lw-2, 3.5, consult, "", 0, "C", false, 0, "")
-	pdf.SetTextColor(0, 0, 0)
-
-	return y + altBloco
+	wIE := lw * 0.22
+	wIM := lw * 0.20
+	wIEST := lw * 0.30
+	wCNPJ := lw - wIE - wIM - wIEST
+	celulaCampo(pdf, margem, y, wIE, 8, "INSCRIÇÃO ESTADUAL", d.EmitIE)
+	celulaCampo(pdf, margem+wIE, y, wIM, 8, "INSCRIÇÃO MUNICIPAL", d.EmitIM)
+	celulaCampo(pdf, margem+wIE+wIM, y, wIEST, 8, "INSCRIÇÃO ESTADUAL DO SUBST. TRIBUT.", d.EmitIEST)
+	celulaCampo(pdf, margem+wIE+wIM+wIEST, y, wCNPJ, 8, "CNPJ / CPF", d.EmitCNPJ)
+	return y + 8
 }
+
+// altBarcode é a altura de referência (em mm/4, escala usada no cabeçalho)
+// da barra do Code128 — mínimo oficial 0,8cm (MOC 7.0 Anexo II - Manual de
+// Especificações Técnicas do DANFE e Código de Barras, item 2 "Código de
+// Barras"). Achado real: a versão antiga usava 7mm, abaixo do mínimo.
+const altBarcode = 10.0
 
 // ── Destinatário ──────────────────────────────────────────────────────────────
 
@@ -404,7 +380,7 @@ func renderDestinatario(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	celulaCampo(pdf, margem+wNome+wDoc, y, wData, 9, "DATA DA EMISSÃO", d.DataEmissao)
 	y += 9
 
-	// Linha 2: endereço, bairro, CEP, municipio, UF, fone, IE
+	// Linha 2: endereço, bairro, CEP, data de saída/entrada
 	end := d.DestEnd
 	endStr := end.Logradouro
 	if end.Numero != "" {
@@ -413,18 +389,27 @@ func renderDestinatario(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	if end.Complemento != "" {
 		endStr += " - " + end.Complemento
 	}
-	wEnd := lw * 0.38
-	wBairro := lw * 0.22
-	wCEP := lw * 0.12
-	wMun := lw * 0.18
-	wUF := lw * 0.05
-	wFone := lw - wEnd - wBairro - wCEP - wMun - wUF
+	wEnd := lw * 0.42
+	wBairro := lw * 0.28
+	wCEP := lw * 0.15
+	wDataSai := lw - wEnd - wBairro - wCEP
 	celulaCampo(pdf, margem, y, wEnd, 9, "ENDEREÇO", endStr)
-	celulaCampo(pdf, margem+wEnd, y, wBairro, 9, "BAIRRO", end.Bairro)
+	celulaCampo(pdf, margem+wEnd, y, wBairro, 9, "BAIRRO / DISTRITO", end.Bairro)
 	celulaCampo(pdf, margem+wEnd+wBairro, y, wCEP, 9, "CEP", end.CEP)
-	celulaCampo(pdf, margem+wEnd+wBairro+wCEP, y, wMun, 9, "MUNICÍPIO", end.Municipio)
-	celulaCampo(pdf, margem+wEnd+wBairro+wCEP+wMun, y, wUF, 9, "UF", end.UF)
-	celulaCampo(pdf, margem+wEnd+wBairro+wCEP+wMun+wUF, y, wFone, 9, "FONE/FAX", end.Fone)
+	celulaCampo(pdf, margem+wEnd+wBairro+wCEP, y, wDataSai, 9, "DATA DA SAÍDA/ENTRADA", d.DataSaida)
+	y += 9
+
+	// Linha 3: município, UF, fone, IE, hora de saída/entrada
+	wMun := lw * 0.35
+	wUF := lw * 0.08
+	wFone := lw * 0.18
+	wIE := lw * 0.22
+	wHoraSai := lw - wMun - wUF - wFone - wIE
+	celulaCampo(pdf, margem, y, wMun, 9, "MUNICÍPIO", end.Municipio)
+	celulaCampo(pdf, margem+wMun, y, wUF, 9, "UF", end.UF)
+	celulaCampo(pdf, margem+wMun+wUF, y, wFone, 9, "FONE/FAX", end.Fone)
+	celulaCampo(pdf, margem+wMun+wUF+wFone, y, wIE, 9, "INSCRIÇÃO ESTADUAL", d.DestIE)
+	celulaCampo(pdf, margem+wMun+wUF+wFone+wIE, y, wHoraSai, 9, "HORA DA SAÍDA/ENTRADA", d.HoraSaida)
 	y += 9
 
 	_ = alt
@@ -443,28 +428,32 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	pdf.CellFormat(lw, 4, "DADOS DOS PRODUTOS / SERVIÇOS", "1", 2, "C", true, 0, "")
 	y += 4
 
-	// Colunas: num, código, descrição, NCM, CST, CFOP, un, qtd, v.unit, v.desc, v.prod, v.BC, v.ICMS, al%, IPI
+	// Colunas: código, descrição, NCM, orig/CST-CSOSN, CFOP, un, qtd, v.unit, v.total, v.desc, BC ICMS, v.ICMS, v.IPI, al.ICMS, al.IPI
+	const idxDescricao = 1
 	cols := []struct {
 		label string
 		w     float64
 		align string
 	}{
-		{"#", 5, "C"},
-		{"CÓD.", 12, "C"},
-		{"DESCRIÇÃO DO PRODUTO", 50, "L"},
-		{"NCM", 13, "C"},
-		{"CST", 8, "C"},
-		{"CFOP", 9, "C"},
-		{"UN", 7, "C"},
-		{"QTDE", 12, "R"},
-		{"VL UNIT.", 14, "R"},
-		{"VL DESC.", 14, "R"},
-		{"VL TOTAL", 14, "R"},
-		{"VL IPI", 12, "R"},
+		{"CÓD.PROD.", 11, "C"},
+		{"DESCRIÇÃO DO PRODUTO / SERVIÇO", 31, "L"},
+		{"NCM/SH", 10, "C"},
+		{"ORIG/CST", 9, "C"},
+		{"CFOP", 8, "C"},
+		{"UN", 6, "C"},
+		{"QUANT", 10, "R"},
+		{"VL UNIT", 11, "R"},
+		{"VL TOTAL", 11, "R"},
+		{"VL DESC", 10, "R"},
+		{"BC ICMS", 11, "R"},
+		{"VL ICMS", 11, "R"},
+		{"VL IPI", 10, "R"},
+		{"ALQ ICMS", 10, "R"},
+		{"ALQ IPI", 9, "R"},
 	}
 
 	// Linha de cabeçalho das colunas
-	pdf.SetFont("Arial", "B", 5)
+	pdf.SetFont("Arial", "B", 4.5)
 	pdf.SetFillColor(245, 245, 245)
 	x := margem
 	for _, c := range cols {
@@ -485,23 +474,26 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 
 		x = margem
 		vals := []string{
-			fmt.Sprintf("%d", item.Num),
 			item.CProd,
 			item.XProd,
 			item.NCM,
-			item.CST,
+			item.Orig + "/" + item.CST,
 			item.CFOP,
 			item.Unidade,
 			formatarQtd(item.Qtd),
 			formatarMoeda(item.VUnit),
-			formatarMoeda(item.VDesc),
 			formatarMoeda(item.VProd),
+			formatarMoeda(item.VDesc),
+			formatarMoeda(item.VBC),
+			formatarMoeda(item.ICMS),
 			formatarMoeda(item.IPI),
+			formatarAliq(item.AliqICMS),
+			formatarAliq(item.AliqIPI),
 		}
 
 		// Calcular altura necessária para o nome do produto
 		altLinha := 5.0
-		descW := cols[2].w - 2
+		descW := cols[idxDescricao].w - 2
 		pdf.SetFont("Arial", "", 6)
 		linhasDesc := pdf.SplitLines([]byte(pdf.tr(item.XProd)), descW)
 		if len(linhasDesc) > 1 {
@@ -510,7 +502,7 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 
 		for i, c := range cols {
 			pdf.SetXY(x, y)
-			if i == 2 {
+			if i == idxDescricao {
 				// Descrição com wrap
 				pdf.SetFont("Arial", "", 6)
 				pdf.MultiCell(c.w, 3.5, vals[i], "1", "L", false)
@@ -538,15 +530,16 @@ func renderTotais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	y += 4
 
 	// Linha 1
-	w := lw / 7
+	w := lw / 8
 	campos1 := [][2]string{
-		{"BASE CÁLC. ICMS", formatarMoeda(d.VBC)},
+		{"BASE DE CÁLC. DO ICMS", formatarMoeda(d.VBC)},
 		{"VALOR DO ICMS", formatarMoeda(d.VICMS)},
-		{"BASE CÁLC. ICMS ST", formatarMoeda(d.VBCST)},
-		{"VALOR ICMS ST", formatarMoeda(d.VST)},
-		{"VL APROX. TRIB.", "0,00"},
-		{"VALOR DO IPI", formatarMoeda(d.VIPI)},
-		{"VALOR DO PIS", formatarMoeda(d.VPIS)},
+		{"BASE DE CÁLC. ICMS S.T.", formatarMoeda(d.VBCST)},
+		{"VALOR DO ICMS SUBST.", formatarMoeda(d.VST)},
+		{"V. IMP. IMPORTAÇÃO", formatarMoeda(d.VII)},
+		{"V. ICMS UF REMET.", formatarMoeda(d.VICMSUFRemet)},
+		{"V. FCP UF DEST.", formatarMoeda(d.VFCPUFDest)},
+		{"V. TOTAL PRODUTOS", formatarMoeda(d.VProd)},
 	}
 	for i, c := range campos1 {
 		celulaCampo(pdf, margem+float64(i)*w, y, w, 9, c[0], c[1])
@@ -555,13 +548,14 @@ func renderTotais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 
 	// Linha 2
 	campos2 := [][2]string{
-		{"VL. COFINS", formatarMoeda(d.VCOFINS)},
-		{"VL. FRETE", formatarMoeda(d.VFrete)},
-		{"VL. SEGURO", formatarMoeda(d.VSeg)},
+		{"VALOR DO FRETE", formatarMoeda(d.VFrete)},
+		{"VALOR DO SEGURO", formatarMoeda(d.VSeg)},
 		{"DESCONTO", formatarMoeda(d.VDesc)},
 		{"OUTRAS DESPESAS", formatarMoeda(d.VOutro)},
-		{"VL. TOTAL PRODUTOS", formatarMoeda(d.VProd)},
-		{"VALOR TOTAL DA NF", formatarMoeda(d.VNF)},
+		{"VALOR TOTAL IPI", formatarMoeda(d.VIPI)},
+		{"V. ICMS UF DEST.", formatarMoeda(d.VICMSUFDest)},
+		{"V. TOT. TRIB.", formatarMoeda(d.VTotTrib)},
+		{"V. TOTAL DA NOTA", formatarMoeda(d.VNF)},
 	}
 	for i, c := range campos2 {
 		celulaCampo(pdf, margem+float64(i)*w, y, w, 9, c[0], c[1])
@@ -582,24 +576,30 @@ func renderTransporte(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	pdf.CellFormat(lw, 4, "TRANSPORTADOR / VOLUMES TRANSPORTADOS", "1", 2, "C", true, 0, "")
 	y += 4
 
-	// Linha 1: Nome/RS | Frete | CNPJ/CPF | IE
-	wNome := lw * 0.40
-	wFrete := lw * 0.15
-	wCNPJ := lw * 0.27
-	wIE := lw - wNome - wFrete - wCNPJ
-	celulaCampo(pdf, margem, y, wNome, 9, "RAZÃO SOCIAL DO TRANSPORTADOR", d.TranspNome)
-	celulaCampo(pdf, margem+wNome, y, wFrete, 9, "MODALIDADE DO FRETE", descricaoModFrete(d.ModFrete))
-	celulaCampo(pdf, margem+wNome+wFrete, y, wCNPJ, 9, "CNPJ / CPF", d.TranspCNPJ)
-	celulaCampo(pdf, margem+wNome+wFrete+wCNPJ, y, wIE, 9, "IE", d.TranspIE)
+	// Linha 1: Nome/RS | Frete | Código ANTT | Placa | UF | CNPJ/CPF
+	wNome := lw * 0.32
+	wFrete := lw * 0.16
+	wANTT := lw * 0.14
+	wPlaca := lw * 0.12
+	wUFVeic := lw * 0.06
+	wCNPJ := lw - wNome - wFrete - wANTT - wPlaca - wUFVeic
+	celulaCampo(pdf, margem, y, wNome, 9, "NOME / RAZÃO SOCIAL", d.TranspNome)
+	celulaCampo(pdf, margem+wNome, y, wFrete, 9, "FRETE", descricaoModFrete(d.ModFrete))
+	celulaCampo(pdf, margem+wNome+wFrete, y, wANTT, 9, "CÓDIGO ANTT", d.TranspANTT)
+	celulaCampo(pdf, margem+wNome+wFrete+wANTT, y, wPlaca, 9, "PLACA DO VEÍCULO", d.TranspPlaca)
+	celulaCampo(pdf, margem+wNome+wFrete+wANTT+wPlaca, y, wUFVeic, 9, "UF", d.TranspPlacaUF)
+	celulaCampo(pdf, margem+wNome+wFrete+wANTT+wPlaca+wUFVeic, y, wCNPJ, 9, "CNPJ / CPF", d.TranspCNPJ)
 	y += 9
 
-	// Linha 2: Endereço | Município | UF
-	wEnd := lw * 0.55
-	wMun := lw * 0.35
-	wUF := lw - wEnd - wMun
+	// Linha 2: Endereço | Município | UF | IE
+	wEnd := lw * 0.45
+	wMun := lw * 0.30
+	wUF := lw * 0.08
+	wIE := lw - wEnd - wMun - wUF
 	celulaCampo(pdf, margem, y, wEnd, 9, "ENDEREÇO", d.TranspEnd)
 	celulaCampo(pdf, margem+wEnd, y, wMun, 9, "MUNICÍPIO", d.TranspMun)
 	celulaCampo(pdf, margem+wEnd+wMun, y, wUF, 9, "UF", d.TranspUF)
+	celulaCampo(pdf, margem+wEnd+wMun+wUF, y, wIE, 9, "INSCRIÇÃO ESTADUAL", d.TranspIE)
 	y += 9
 
 	// Linha 3: Volumes
@@ -708,11 +708,11 @@ func renderPagamento(pdf *Doc, d *DadosDANFE, y float64) float64 {
 
 // ── Dados adicionais ──────────────────────────────────────────────────────────
 
-func renderDadosAdicionais(pdf *Doc, d *DadosDANFE, y float64) {
+func renderDadosAdicionais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
 	if d.InfCpl == "" && d.InfAdFisco == "" {
-		return
+		return y
 	}
 
 	pdf.SetFont("Arial", "B", 7)
@@ -745,6 +745,18 @@ func renderDadosAdicionais(pdf *Doc, d *DadosDANFE, y float64) {
 		pdf.SetXY(margem+wInteresse+1, y+4)
 		pdf.MultiCell(wFisco-2, 3.5, d.InfAdFisco, "", "L", false)
 	}
+
+	return y + altBloco
+}
+
+// ── Rodapé ────────────────────────────────────────────────────────────────────
+
+func renderRodape(pdf *Doc, y float64) {
+	pdf.SetFont("Arial", "", 5)
+	pdf.SetTextColor(120, 120, 120)
+	pdf.SetXY(margem, y+2)
+	pdf.CellFormat(larguraUtil, 3, "Impresso em "+time.Now().Format("02/01/2006")+" as "+time.Now().Format("15:04:05"), "", 0, "L", false, 0, "")
+	pdf.SetTextColor(0, 0, 0)
 }
 
 // ── Barcode Code 128 ──────────────────────────────────────────────────────────
@@ -782,6 +794,13 @@ func formatarMoeda(v float64) string {
 
 func formatarQtd(v float64) string {
 	return fmt.Sprintf("%.4f", v)
+}
+
+func formatarAliq(v float64) string {
+	if v == 0 {
+		return "0,00"
+	}
+	return fmt.Sprintf("%.2f", v)
 }
 
 func splitDecimal(s string) [2]string {

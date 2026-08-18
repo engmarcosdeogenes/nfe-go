@@ -495,16 +495,16 @@ func TestGerarDANFE_AcentosNaoQuebram(t *testing.T) {
 
 	conteudo := decodificarStreamsPDF(t, pdfBytes)
 
-	// "SÉRIE" em cp1252: 'S' 0xC9 'R' 'I' 'E'. Em UTF-8 cru (o bug), o É vira
-	// 2 bytes (0xC3 0x89) em vez de 1 — a assinatura exata do mojibake.
-	mojibake := []byte{'S', 0xC3, 0x89, 'R', 'I', 'E'}
+	// "Série" em cp1252: 'S' 'é'=0xE9 'r' 'i' 'e'. Em UTF-8 cru (o bug), o é vira
+	// 2 bytes (0xC3 0xA9) em vez de 1 — a assinatura exata do mojibake.
+	mojibake := []byte{'S', 0xC3, 0xA9, 'r', 'i', 'e'}
 	if bytes.Contains(conteudo, mojibake) {
-		t.Error("PDF contém 'SÃ‰RIE' — texto UTF-8 cru não traduzido pra cp1252 (mojibake)")
+		t.Error("PDF contém 'SÃ©rie' — texto UTF-8 cru não traduzido pra cp1252 (mojibake)")
 	}
 
-	correto := []byte{'S', 0xC9, 'R', 'I', 'E'}
+	correto := []byte{'S', 0xE9, 'r', 'i', 'e'}
 	if !bytes.Contains(conteudo, correto) {
-		t.Error("rótulo 'SÉRIE' não apareceu com o byte cp1252 correto (0xC9) no PDF")
+		t.Error("rótulo 'Série' não apareceu com o byte cp1252 correto (0xE9) no PDF")
 	}
 }
 

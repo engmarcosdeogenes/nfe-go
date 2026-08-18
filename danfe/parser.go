@@ -22,12 +22,16 @@ type DadosDANFE struct {
 	// Protocolo (preenchido se vier nfeProc)
 	NumProtocolo string
 	DataAutorizacao string
+	DataSaida    string
+	HoraSaida    string
 
 	// Emitente
 	EmitNome    string
 	EmitFantasia string
 	EmitCNPJ    string
 	EmitIE      string
+	EmitIEST    string
+	EmitIM      string
 	EmitCRT     string
 	EmitEnd     enderecoDANFE
 
@@ -55,6 +59,12 @@ type DadosDANFE struct {
 	VCOFINS  float64
 	VOutro   float64
 	VNF      float64
+	VII      float64
+	VFCP     float64
+	VTotTrib float64
+	VICMSUFRemet float64
+	VFCPUFDest   float64
+	VICMSUFDest  float64
 
 	// Transporte
 	ModFrete  string
@@ -64,6 +74,9 @@ type DadosDANFE struct {
 	TranspEnd string
 	TranspMun string
 	TranspUF  string
+	TranspPlaca string
+	TranspPlacaUF string
+	TranspANTT string
 	Volumes   []volDANFE
 
 	// Pagamento
@@ -98,6 +111,7 @@ type itemDANFE struct {
 	CProd     string
 	XProd     string
 	NCM       string
+	Orig      string
 	CST       string // CSOSN para SN, CST para RN
 	CFOP      string
 	Unidade   string
@@ -161,32 +175,35 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 	type xmlImposto struct {
 		ICMS struct {
 			ICMS00 *struct {
+				Orig  string
 				CST   string
 				PICMS string `xml:"pICMS"`
 				VBC   string `xml:"vBC"`
 				VICMS string `xml:"vICMS"`
 			} `xml:"ICMS00"`
 			ICMS10 *struct {
+				Orig  string
 				CST   string
 				PICMS string `xml:"pICMS"`
 				VBC   string `xml:"vBC"`
 				VICMS string `xml:"vICMS"`
 			} `xml:"ICMS10"`
 			ICMS20 *struct {
+				Orig  string
 				CST   string
 				PICMS string `xml:"pICMS"`
 				VBC   string `xml:"vBC"`
 				VICMS string `xml:"vICMS"`
 			} `xml:"ICMS20"`
-			ICMS40    *struct{ CST string }   `xml:"ICMS40"`
-			ICMS60    *struct{ CST string }   `xml:"ICMS60"`
-			ICMS90    *struct{ CST string }   `xml:"ICMS90"`
-			ICMSSN101 *struct{ CSOSN string } `xml:"ICMSSN101"`
-			ICMSSN102 *struct{ CSOSN string } `xml:"ICMSSN102"`
-			ICMSSN201 *struct{ CSOSN string } `xml:"ICMSSN201"`
-			ICMSSN202 *struct{ CSOSN string } `xml:"ICMSSN202"`
-			ICMSSN500 *struct{ CSOSN string } `xml:"ICMSSN500"`
-			ICMSSN900 *struct{ CSOSN string } `xml:"ICMSSN900"`
+			ICMS40    *struct{ Orig, CST string }   `xml:"ICMS40"`
+			ICMS60    *struct{ Orig, CST string }   `xml:"ICMS60"`
+			ICMS90    *struct{ Orig, CST string }   `xml:"ICMS90"`
+			ICMSSN101 *struct{ Orig, CSOSN string } `xml:"ICMSSN101"`
+			ICMSSN102 *struct{ Orig, CSOSN string } `xml:"ICMSSN102"`
+			ICMSSN201 *struct{ Orig, CSOSN string } `xml:"ICMSSN201"`
+			ICMSSN202 *struct{ Orig, CSOSN string } `xml:"ICMSSN202"`
+			ICMSSN500 *struct{ Orig, CSOSN string } `xml:"ICMSSN500"`
+			ICMSSN900 *struct{ Orig, CSOSN string } `xml:"ICMSSN900"`
 		} `xml:"ICMS"`
 		IPI *struct {
 			PIPI string `xml:"IPITrib>pIPI"`
@@ -219,6 +236,11 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			XMun   string `xml:"xMun"`
 			UF     string `xml:"UF"`
 		} `xml:"transporta"`
+		VeicTransp struct {
+			Placa string `xml:"placa"`
+			UF    string `xml:"UF"`
+			RNTC  string `xml:"RNTC"`
+		} `xml:"veicTransp"`
 		Vol []struct {
 			QVol  string `xml:"qVol"`
 			Esp   string `xml:"esp"`
@@ -241,6 +263,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 				NNF     string `xml:"nNF"`
 				Serie   string `xml:"serie"`
 				DhEmi   string `xml:"dhEmi"`
+				DhSaiEnt string `xml:"dhSaiEnt"`
 				TpNF    string `xml:"tpNF"`
 				NatOp   string `xml:"natOp"`
 				TpAmb   string `xml:"tpAmb"`
@@ -252,6 +275,8 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 				XNome  string `xml:"xNome"`
 				XFant  string `xml:"xFant"`
 				IE     string `xml:"IE"`
+				IEST   string `xml:"IEST"`
+				IM     string `xml:"IM"`
 				CRT    string `xml:"CRT"`
 				Ender  xmlEndereco `xml:"enderEmit"`
 			} `xml:"emit"`
@@ -273,11 +298,17 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 					VFrete  string `xml:"vFrete"`
 					VSeg    string `xml:"vSeg"`
 					VDesc   string `xml:"vDesc"`
+					VII     string `xml:"vII"`
 					VIPI    string `xml:"vIPI"`
 					VPIS    string `xml:"vPIS"`
 					VCOFINS string `xml:"vCOFINS"`
 					VOutro  string `xml:"vOutro"`
 					VNF     string `xml:"vNF"`
+					VFCP    string `xml:"vFCP"`
+					VTotTrib     string `xml:"vTotTrib"`
+					VICMSUFRemet string `xml:"vICMSUFRemet"`
+					VFCPUFDest   string `xml:"vFCPUFDest"`
+					VICMSUFDest  string `xml:"vICMSUFDest"`
 				} `xml:"ICMSTot"`
 			} `xml:"total"`
 			Transp xmlTransp `xml:"transp"`
@@ -328,10 +359,14 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 		UrlChave:        nfe.InfNFeSupl.UrlChave,
 		NumProtocolo:    proc.ProtNFe.NProtocolo,
 		DataAutorizacao: formatarDataHora(proc.ProtNFe.DhRecbto),
+		DataSaida:       formatarData(inf.Ide.DhSaiEnt),
+		HoraSaida:       formatarHora(inf.Ide.DhSaiEnt),
 		EmitNome:        inf.Emit.XNome,
 		EmitFantasia:    inf.Emit.XFant,
 		EmitCNPJ:        formatarCNPJ(inf.Emit.CNPJ),
 		EmitIE:          inf.Emit.IE,
+		EmitIEST:        inf.Emit.IEST,
+		EmitIM:          inf.Emit.IM,
 		EmitCRT:         inf.Emit.CRT,
 		EmitEnd:         converterEndereco(inf.Emit.Ender),
 		DestNome:        inf.Dest.XNome,
@@ -357,6 +392,12 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 	d.VCOFINS = parseFloat(inf.Total.ICMSTot.VCOFINS)
 	d.VOutro = parseFloat(inf.Total.ICMSTot.VOutro)
 	d.VNF = parseFloat(inf.Total.ICMSTot.VNF)
+	d.VII = parseFloat(inf.Total.ICMSTot.VII)
+	d.VFCP = parseFloat(inf.Total.ICMSTot.VFCP)
+	d.VTotTrib = parseFloat(inf.Total.ICMSTot.VTotTrib)
+	d.VICMSUFRemet = parseFloat(inf.Total.ICMSTot.VICMSUFRemet)
+	d.VFCPUFDest = parseFloat(inf.Total.ICMSTot.VFCPUFDest)
+	d.VICMSUFDest = parseFloat(inf.Total.ICMSTot.VICMSUFDest)
 
 	// Transporte
 	d.ModFrete = inf.Transp.ModFrete
@@ -370,6 +411,9 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 	d.TranspEnd = inf.Transp.Transporta.XEnder
 	d.TranspMun = inf.Transp.Transporta.XMun
 	d.TranspUF = inf.Transp.Transporta.UF
+	d.TranspPlaca = inf.Transp.VeicTransp.Placa
+	d.TranspPlacaUF = inf.Transp.VeicTransp.UF
+	d.TranspANTT = inf.Transp.VeicTransp.RNTC
 	for _, v := range inf.Transp.Vol {
 		d.Volumes = append(d.Volumes, volDANFE{
 			Quantidade: parseFloat(v.QVol),
@@ -416,38 +460,38 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 		imp := det.Imposto
 		switch {
 		case imp.ICMS.ICMS00 != nil:
-			item.CST = imp.ICMS.ICMS00.CST
+			item.Orig, item.CST = imp.ICMS.ICMS00.Orig, imp.ICMS.ICMS00.CST
 			item.VBC = parseFloat(imp.ICMS.ICMS00.VBC)
 			item.ICMS = parseFloat(imp.ICMS.ICMS00.VICMS)
 			item.AliqICMS = parseFloat(imp.ICMS.ICMS00.PICMS)
 		case imp.ICMS.ICMS10 != nil:
-			item.CST = imp.ICMS.ICMS10.CST
+			item.Orig, item.CST = imp.ICMS.ICMS10.Orig, imp.ICMS.ICMS10.CST
 			item.VBC = parseFloat(imp.ICMS.ICMS10.VBC)
 			item.ICMS = parseFloat(imp.ICMS.ICMS10.VICMS)
 			item.AliqICMS = parseFloat(imp.ICMS.ICMS10.PICMS)
 		case imp.ICMS.ICMS20 != nil:
-			item.CST = imp.ICMS.ICMS20.CST
+			item.Orig, item.CST = imp.ICMS.ICMS20.Orig, imp.ICMS.ICMS20.CST
 			item.VBC = parseFloat(imp.ICMS.ICMS20.VBC)
 			item.ICMS = parseFloat(imp.ICMS.ICMS20.VICMS)
 			item.AliqICMS = parseFloat(imp.ICMS.ICMS20.PICMS)
 		case imp.ICMS.ICMS40 != nil:
-			item.CST = imp.ICMS.ICMS40.CST
+			item.Orig, item.CST = imp.ICMS.ICMS40.Orig, imp.ICMS.ICMS40.CST
 		case imp.ICMS.ICMS60 != nil:
-			item.CST = imp.ICMS.ICMS60.CST
+			item.Orig, item.CST = imp.ICMS.ICMS60.Orig, imp.ICMS.ICMS60.CST
 		case imp.ICMS.ICMS90 != nil:
-			item.CST = imp.ICMS.ICMS90.CST
+			item.Orig, item.CST = imp.ICMS.ICMS90.Orig, imp.ICMS.ICMS90.CST
 		case imp.ICMS.ICMSSN101 != nil:
-			item.CST = imp.ICMS.ICMSSN101.CSOSN
+			item.Orig, item.CST = imp.ICMS.ICMSSN101.Orig, imp.ICMS.ICMSSN101.CSOSN
 		case imp.ICMS.ICMSSN102 != nil:
-			item.CST = imp.ICMS.ICMSSN102.CSOSN
+			item.Orig, item.CST = imp.ICMS.ICMSSN102.Orig, imp.ICMS.ICMSSN102.CSOSN
 		case imp.ICMS.ICMSSN201 != nil:
-			item.CST = imp.ICMS.ICMSSN201.CSOSN
+			item.Orig, item.CST = imp.ICMS.ICMSSN201.Orig, imp.ICMS.ICMSSN201.CSOSN
 		case imp.ICMS.ICMSSN202 != nil:
-			item.CST = imp.ICMS.ICMSSN202.CSOSN
+			item.Orig, item.CST = imp.ICMS.ICMSSN202.Orig, imp.ICMS.ICMSSN202.CSOSN
 		case imp.ICMS.ICMSSN500 != nil:
-			item.CST = imp.ICMS.ICMSSN500.CSOSN
+			item.Orig, item.CST = imp.ICMS.ICMSSN500.Orig, imp.ICMS.ICMSSN500.CSOSN
 		case imp.ICMS.ICMSSN900 != nil:
-			item.CST = imp.ICMS.ICMSSN900.CSOSN
+			item.Orig, item.CST = imp.ICMS.ICMSSN900.Orig, imp.ICMS.ICMSSN900.CSOSN
 		}
 		if imp.IPI != nil {
 			item.IPI = parseFloat(imp.IPI.VIPI)
@@ -476,6 +520,15 @@ func formatarDataHora(s string) string {
 		return s
 	}
 	return s[8:10] + "/" + s[5:7] + "/" + s[0:4] + " " + s[11:16]
+}
+
+func formatarHora(s string) string {
+	// Entrada: "2026-06-25T10:00:00-03:00"
+	// Saída:   "10:00:00"
+	if len(s) < 19 {
+		return ""
+	}
+	return s[11:19]
 }
 
 func formatarData(s string) string {
