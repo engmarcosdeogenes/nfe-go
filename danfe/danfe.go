@@ -329,8 +329,15 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64) float64 {
 
 // ── Chave de acesso ───────────────────────────────────────────────────────────
 
+// altBarcode é a altura da barra do Code128 — mínimo oficial 0,8cm (MOC 7.0
+// Anexo II - Manual de Especificações Técnicas do DANFE e Código de Barras,
+// item 2 "Código de Barras"). Usamos 1,0cm (o tamanho da tabela de
+// referência do item 3.8.1) pra ficar com folga acima do mínimo, não em
+// cima da linha. Achado real: a versão antiga usava 7mm, abaixo do mínimo.
+const altBarcode = 10.0
+
 func renderChave(pdf *Doc, d *DadosDANFE, y float64) float64 {
-	altBloco := 18.0
+	altBloco := 24.0
 	lw := larguraUtil
 
 	setarBorda(pdf)
@@ -346,20 +353,22 @@ func renderChave(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	pdf.SetX(margem + 1)
 	pdf.CellFormat(lw-2, 4, formatarChave(d.ChaveAcesso), "", 2, "C", false, 0, "")
 
-	// Barcode Code 128
+	// Barcode Code 128 — largura 80mm já acima do mínimo oficial de 60mm
+	// (6cm) pra impressão não-impacto/laser (é o nosso caso, sempre PDF).
+	yBarcode := y + 8.5
 	if d.ChaveAcesso != "" {
 		barcodeImg, err := gerarBarcodeCode128(d.ChaveAcesso)
 		if err == nil {
 			imgName := "barcode_chave"
 			pdf.RegisterImageOptionsReader(imgName, fpdf.ImageOptions{ImageType: "PNG"}, bytes.NewReader(barcodeImg))
 			xBarcode := margem + (lw-80)/2
-			pdf.Image(imgName, xBarcode, y+8.5, 80, 7, false, "", 0, "")
+			pdf.Image(imgName, xBarcode, yBarcode, 80, altBarcode, false, "", 0, "")
 		}
 	}
 
 	pdf.SetFont("Arial", "", 5)
 	pdf.SetTextColor(80, 80, 80)
-	pdf.SetXY(margem+1, y+altBloco-4)
+	pdf.SetXY(margem+1, yBarcode+altBarcode+0.5)
 	consult := "Consulta de autenticidade no portal nacional da NF-e: www.nfe.fazenda.gov.br/portal"
 	pdf.CellFormat(lw-2, 3.5, consult, "", 0, "C", false, 0, "")
 	pdf.SetTextColor(0, 0, 0)
