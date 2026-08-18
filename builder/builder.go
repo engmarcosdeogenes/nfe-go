@@ -102,6 +102,17 @@ type EntradaItem struct {
 	ICMS       EntradaICMS
 	IPI        *EntradaIPI    // nil = sem IPI
 	IBSCBS     *EntradaIBSCBS // nil = sem grupo IBS/CBS (obrigatório em homologação desde 01/07/2026 pra CRT=3)
+	PISCofins  EntradaPISCofins
+}
+
+// EntradaPISCofins sobrepõe o CST/alíquota de PIS/COFINS do item -- CST vazio
+// mantém o comportamento antigo (07=isento pro Simples, 01@0.65/3.00 pro
+// Regime Normal). AliqPIS/AliqCOFINS só valem quando o CST exige alíquota
+// (01, 02, 99); CSTs de não-tributação (04-09, 49...) ignoram os dois.
+type EntradaPISCofins struct {
+	CST        string
+	AliqPIS    float64
+	AliqCOFINS float64
 }
 
 // EntradaIBSCBS informa a tributação IBS/CBS do item (NT 2025.002-RTC).
@@ -554,6 +565,37 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	return detalhes, tot, ibscbsTot, nil
 }
 
+// montarPISCOFINS resolve PIS/COFINS do item. CST vazio aplica defaultCST
+// (comportamento de antes desse override existir: "07" isento pro Simples,
+// "01"@0.65/3.00 pro Regime Normal). CSTs 01/02/99 levam vBC+alíquota; os
+// demais (04-09, 49...) são não-tributação, sem base nem valor.
+func montarPISCOFINS(p EntradaPISCofins, vProd float64, defaultCST string) (PIS, COFINS, float64, float64) {
+	cst, aliqPIS, aliqCOFINS := p.CST, p.AliqPIS, p.AliqCOFINS
+	if cst == "" {
+		cst = defaultCST
+		if cst == "01" {
+			aliqPIS, aliqCOFINS = 0.65, 3.00
+		}
+	}
+
+	switch cst {
+	case "01", "02":
+		vPIS := vProd * aliqPIS / 100
+		vCOFINS := vProd * aliqCOFINS / 100
+		return PIS{PISAliq: &PISAliq{CST: cst, VBC: fmtVal(vProd), PPIS: fmtVal(aliqPIS), VPIS: fmtVal(vPIS)}},
+			COFINS{COFINSAliq: &COFINSAliq{CST: cst, VBC: fmtVal(vProd), PCOFINS: fmtVal(aliqCOFINS), VCOFINS: fmtVal(vCOFINS)}},
+			vPIS, vCOFINS
+	case "99":
+		vPIS := vProd * aliqPIS / 100
+		vCOFINS := vProd * aliqCOFINS / 100
+		return PIS{PISOutr: &PISOutr{CST: cst, VBC: fmtVal(vProd), PPIS: fmtVal(aliqPIS), VPIS: fmtVal(vPIS)}},
+			COFINS{COFINSOutr: &COFINSOutr{CST: cst, VBC: fmtVal(vProd), PCOFINS: fmtVal(aliqCOFINS), VCOFINS: fmtVal(vCOFINS)}},
+			vPIS, vCOFINS
+	default:
+		return PIS{PISNt: &PISNt{CST: cst}}, COFINS{COFINSNt: &COFINSNt{CST: cst}}, 0, 0
+	}
+}
+
 // totaisItem carrega as parcelas de ICMS e IBS/CBS de um item que precisam
 // ser somadas no total da NF-e -- SEFAZ rejeita (regras 531/etc.) se o total
 // declarado não bater com o somatório dos itens.
@@ -575,9 +617,10 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
 		}
 		icms.ICMSSN102 = &ICMSSN102{Orig: "0", CSOSN: csosn}
 		imp.ICMS = icms
-		imp.PIS = PIS{PISNt: &PISNt{CST: "07"}}
-		imp.COFINS = COFINS{COFINSNt: &COFINSNt{CST: "07"}}
-		return imp, totaisItem{}
+		vProd := item.Quantidade * item.VUnitario
+		pis, cofins, vPIS, vCOFINS := montarPISCOFINS(item.PISCofins, vProd, "07")
+		imp.PIS, imp.COFINS = pis, cofins
+		return imp, totaisItem{vPIS: vPIS, vCOFINS: vCOFINS}
 	}
 
 	// Regime Normal (CRT 3)
@@ -639,11 +682,9 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
 		icms.ICMS40 = &ICMS40{Orig: "0", CST: "40"}
 	}
 
-	vPIS := vProd * 0.0065
-	vCOFINS := vProd * 0.03
 	imp.ICMS = icms
-	imp.PIS = PIS{PISAliq: &PISAliq{CST: "01", VBC: fmtVal(vProd), PPIS: "0.65", VPIS: fmtVal(vPIS)}}
-	imp.COFINS = COFINS{COFINSAliq: &COFINSAliq{CST: "01", VBC: fmtVal(vProd), PCOFINS: "3.00", VCOFINS: fmtVal(vCOFINS)}}
+	pis, cofins, vPIS, vCOFINS := montarPISCOFINS(item.PISCofins, vProd, "01")
+	imp.PIS, imp.COFINS = pis, cofins
 	tot.vPIS, tot.vCOFINS = vPIS, vCOFINS
 
 	if item.IPI != nil {

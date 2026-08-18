@@ -9,7 +9,6 @@ import (
 	"github.com/engmarcosdeogenes/nfe-go/builder"
 )
 
-
 func entradaExemplo() builder.EntradaNFe {
 	return builder.EntradaNFe{
 		Serie:    "1",
@@ -438,6 +437,38 @@ func TestCRT3_SemIBSCBS_NaoAdicionaGrupo(t *testing.T) {
 	}
 }
 
+func TestPISCofins_OverrideCST(t *testing.T) {
+	e := entradaCRT3()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P001", CEAN: "SEM GTIN", Nome: "PRODUTO TESTE",
+		NCM: "73089090", CFOP: "5102", Unidade: "UN",
+		Quantidade: 10, VUnitario: 100.00,
+		ICMS:      builder.EntradaICMS{CST: "00", Aliq: 12.0},
+		PISCofins: builder.EntradaPISCofins{CST: "04"}, // monofásico -- sem base/alíquota
+	}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build override CST 04: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	imp := nfe.InfNFe.Det[0].Imposto
+	if imp.PIS.PISNt == nil || imp.PIS.PISNt.CST != "04" {
+		t.Fatalf("esperava PISNT CST=04, veio %+v", imp.PIS)
+	}
+	if imp.COFINS.COFINSNt == nil || imp.COFINS.COFINSNt.CST != "04" {
+		t.Fatalf("esperava COFINSNT CST=04, veio %+v", imp.COFINS)
+	}
+	tot := nfe.InfNFe.Total.ICMSTot
+	if tot.VPIS != "0.00" || tot.VCOFINS != "0.00" {
+		t.Errorf("CST 04 não deveria gerar vPIS/vCOFINS, veio vPIS=%s vCOFINS=%s", tot.VPIS, tot.VCOFINS)
+	}
+}
+
 func TestCRT3_ICMS40_Isento(t *testing.T) {
 	e := entradaCRT3()
 	e.Itens = []builder.EntradaItem{{
@@ -859,9 +890,9 @@ func TestFinNFe_Devolucao_SemRef_Erro(t *testing.T) {
 func entradaNFCe() builder.EntradaNFe {
 	return builder.EntradaNFe{
 		Serie: "1", NNF: "1",
-		DhEmi:           time.Date(2026, 6, 26, 10, 0, 0, 0, time.FixedZone("BRT", -3*3600)),
-		NatOp:           "VENDA A CONSUMIDOR", TpAmb: "2",
-		FinNFe:          "1", IndFinal: "1", IndPres: "1",
+		DhEmi: time.Date(2026, 6, 26, 10, 0, 0, 0, time.FixedZone("BRT", -3*3600)),
+		NatOp: "VENDA A CONSUMIDOR", TpAmb: "2",
+		FinNFe: "1", IndFinal: "1", IndPres: "1",
 		Mod:             "65",
 		CSC:             "CE154B7B6FB48B77",
 		CSCId:           "000001",
@@ -983,9 +1014,9 @@ func TestNFCe_Builder_CNPJDestRejeitado(t *testing.T) {
 	// NFC-e com CNPJ no destinatário deve falhar
 	e := builder.EntradaNFe{
 		Serie: "1", NNF: "2",
-		DhEmi:    time.Date(2026, 6, 26, 10, 0, 0, 0, time.FixedZone("BRT", -3*3600)),
-		NatOp:    "VENDA A CONSUMIDOR", TpAmb: "2",
-		FinNFe:   "1", IndFinal: "1", IndPres: "1",
+		DhEmi: time.Date(2026, 6, 26, 10, 0, 0, 0, time.FixedZone("BRT", -3*3600)),
+		NatOp: "VENDA A CONSUMIDOR", TpAmb: "2",
+		FinNFe: "1", IndFinal: "1", IndPres: "1",
 		Mod: "65",
 		Emitente: builder.EntradaEmitente{
 			CNPJ: "11222333000181", Nome: "LOJA TESTE LTDA", IE: "123456789", CRT: "1",
