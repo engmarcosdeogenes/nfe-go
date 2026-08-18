@@ -149,6 +149,12 @@ func (cl *Cliente) chamarDistribuicao(ctx context.Context, cnpj, corpoConsulta s
 	}
 
 	ret := result.Ret
+	// 137 = nenhum documento localizado, 138 = documento(s) localizado(s) — únicos
+	// cStat de sucesso do serviço. Qualquer outro é rejeição (ex: 215 "Falha no
+	// esquema xml") e não pode virar retorno vazio silencioso.
+	if ret.CStat != "137" && ret.CStat != "138" {
+		return nil, fmt.Errorf("sefaz: distribuicao DFe rejeitada: cStat=%s xMotivo=%s", ret.CStat, ret.XMotivo)
+	}
 	docs := make([]DocDFe, 0, len(ret.Lote.Docs))
 	for _, d := range ret.Lote.Docs {
 		xmlBytes, err := descomprimirDFe(strings.TrimSpace(d.Conteudo))
@@ -251,9 +257,13 @@ func (cl *Cliente) SincronizarDFe(ctx context.Context, cnpj string, ultNSU int) 
 }
 
 // SincronizarDFe é uma função de conveniência que cria internamente um cliente para o serviço
-// nacional de DFe (cUFAutor="91"). Para transport customizado (testes), use NovoClienteTransporte.
-func SincronizarDFe(c *cert.Certificado, cnpj string, ultNSU int, amb Ambiente) ([]DocumentoDFe, error) {
-	cl, err := NovoCliente("91", amb, c)
+// nacional de DFe. uf é o código IBGE da UF do autor da consulta (ex: "52" para GO) — vai no
+// campo cUFAutor do pedido; "91" ali é rejeitado pela SEFAZ com cStat=215 "Falha no esquema xml"
+// (91 identifica o próprio Ambiente Nacional como autor, não um contribuinte comum). A URL do
+// serviço é sempre a nacional, independente da UF passada aqui. Para transport customizado
+// (testes), use NovoClienteTransporte.
+func SincronizarDFe(c *cert.Certificado, uf, cnpj string, ultNSU int, amb Ambiente) ([]DocumentoDFe, error) {
+	cl, err := NovoCliente(uf, amb, c)
 	if err != nil {
 		return nil, fmt.Errorf("sefaz: SincronizarDFe: criar cliente: %w", err)
 	}
