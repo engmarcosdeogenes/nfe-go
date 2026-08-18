@@ -95,6 +95,7 @@ type EntradaItem struct {
 	Nome       string
 	NCM        string // ex: "73089090" para estruturas metálicas
 	CFOP       string // ex: "5102"
+	CBenef     string // código de benefício fiscal (Convênio ICMS 190/17) -- vazio se o item não tem benefício
 	Unidade    string // "UN", "KG", "M2", etc.
 	Quantidade float64
 	VUnitario  float64
@@ -496,6 +497,7 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 				CEAN:     ceanOuSemGTIN(item.CEAN),
 				XProd:    item.Nome,
 				NCM:      item.NCM,
+				CBenef:   item.CBenef,
 				CFOP:     item.CFOP,
 				UCom:     item.Unidade,
 				QCom:     fmtQtd(item.Quantidade),

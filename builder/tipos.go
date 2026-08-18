@@ -121,16 +121,16 @@ type EnderecoEmit struct {
 // ── Destinatário ─────────────────────────────────────────────────────────────
 
 type Destinatario struct {
-	CNPJ      string       `xml:"CNPJ,omitempty"`
-	CPF       string       `xml:"CPF,omitempty"`
-	XNome     string       `xml:"xNome"`
+	CNPJ  string `xml:"CNPJ,omitempty"`
+	CPF   string `xml:"CPF,omitempty"`
+	XNome string `xml:"xNome"`
 	// EnderDest é minOccurs=0 no schema: ponteiro pra poder sair fora do XML
 	// quando não há endereço. Emitir o grupo vazio viola TEndereco, cujos
 	// filhos são obrigatórios uma vez que o grupo existe.
 	EnderDest *EnderecoDest `xml:"enderDest,omitempty"`
-	IndIEDest string       `xml:"indIEDest"` // 1=contribuinte, 2=isento, 9=não contrib.
-	IE        string       `xml:"IE,omitempty"`
-	Email     string       `xml:"email,omitempty"`
+	IndIEDest string        `xml:"indIEDest"` // 1=contribuinte, 2=isento, 9=não contrib.
+	IE        string        `xml:"IE,omitempty"`
+	Email     string        `xml:"email,omitempty"`
 }
 
 type EnderecoDest struct {
@@ -161,6 +161,7 @@ type Produto struct {
 	XProd    string `xml:"xProd"`
 	NCM      string `xml:"NCM"`
 	CEST     string `xml:"CEST,omitempty"`
+	CBenef   string `xml:"cBenef,omitempty"` // código de benefício fiscal (Convênio ICMS 190/17), tabela por UF
 	CFOP     string `xml:"CFOP"`
 	UCom     string `xml:"uCom"`
 	QCom     string `xml:"qCom"`

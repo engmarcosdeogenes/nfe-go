@@ -469,6 +469,29 @@ func TestPISCofins_OverrideCST(t *testing.T) {
 	}
 }
 
+func TestCBenef_VaiParaProd(t *testing.T) {
+	e := entradaCRT3()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P001", CEAN: "SEM GTIN", Nome: "PRODUTO TESTE",
+		NCM: "73089090", CFOP: "5102", Unidade: "UN",
+		Quantidade: 10, VUnitario: 100.00,
+		ICMS:   builder.EntradaICMS{CST: "20", Aliq: 12.0, PRedBC: 33.3333},
+		CBenef: "GO123456",
+	}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build com cBenef: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+	if nfe.InfNFe.Det[0].Prod.CBenef != "GO123456" {
+		t.Errorf("cBenef = %q, esperava GO123456", nfe.InfNFe.Det[0].Prod.CBenef)
+	}
+}
+
 func TestCRT3_ICMS40_Isento(t *testing.T) {
 	e := entradaCRT3()
 	e.Itens = []builder.EntradaItem{{
