@@ -168,8 +168,17 @@ func Build(e EntradaNFe) ([]byte, ChaveAcesso, error) {
 	if mod == "" {
 		mod = ModeloNFe
 	}
+	// tpEmis entra na própria chave de acesso (posição fixa, antes do cNF) —
+	// tem que bater com o <tpEmis> do XML (montado abaixo com o mesmo
+	// default). Antes disso era sempre "1" aqui, então qualquer emissão em
+	// contingência (FS-DA, EPEC) saía com chave e elemento divergentes; a
+	// SEFAZ valida essa consistência.
+	tpEmisChave := e.TpEmis
+	if tpEmisChave == "" {
+		tpEmisChave = "1"
+	}
 	chave := NovaChave(e.Emitente.End.UF, FormatarCNPJ(e.Emitente.CNPJ),
-		e.Serie, e.NNF, "1", mod, e.DhEmi)
+		e.Serie, e.NNF, tpEmisChave, mod, e.DhEmi)
 
 	nfe, err := montarNFe(e, chave)
 	if err != nil {
@@ -184,6 +193,27 @@ func Build(e EntradaNFe) ([]byte, ChaveAcesso, error) {
 	// Adiciona declaração XML e garante sem espaços extras
 	xmlBytes := []byte(xml.Header + string(data))
 	return xmlBytes, chave, nil
+}
+
+// TotaisEPEC contém os 3 valores que o evento prévio EPEC exige (vNF, vICMS,
+// vST) já formatados no padrão decimal do leiaute — mesmo cálculo usado no
+// total da NF-e (montarDetalhes), exposto aqui pra quem monta o evento EPEC
+// não duplicar a soma de impostos por item.
+type TotaisEPEC struct {
+	VNF   string
+	VICMS string
+	VST   string
+}
+
+// CalcularTotaisEPEC soma os itens de uma EntradaNFe pros 3 campos que o
+// evento prévio EPEC exige. Não builda nem valida o resto da entrada — só a
+// conta, reaproveitando a mesma lógica de imposto por item do Build normal.
+func CalcularTotaisEPEC(e EntradaNFe) (TotaisEPEC, error) {
+	_, totais, _, err := montarDetalhes(e)
+	if err != nil {
+		return TotaisEPEC{}, fmt.Errorf("builder: calcular totais EPEC: %w", err)
+	}
+	return TotaisEPEC{VNF: totais.VNF, VICMS: totais.VICMS, VST: totais.VST}, nil
 }
 
 // ── Montagem ─────────────────────────────────────────────────────────────────
@@ -700,12 +730,12 @@ func validarEntrada(e EntradaNFe) error {
 	if (e.FinNFe == "2" || e.FinNFe == "4") && e.ChaveNFeRef == "" {
 		return fmt.Errorf("finNFe=%s exige ChaveNFeRef preenchida (44 dígitos da NF-e original)", e.FinNFe)
 	}
-	if e.TpEmis == "5" {
+	if e.TpEmis == "4" || e.TpEmis == "5" {
 		if e.DhCont == "" {
-			return fmt.Errorf("TpEmis=5 (FS-DA) exige DhCont preenchida (data/hora entrada em contingência)")
+			return fmt.Errorf("TpEmis=%s exige DhCont preenchida (data/hora entrada em contingência)", e.TpEmis)
 		}
 		if len(e.XJust) < 15 {
-			return fmt.Errorf("TpEmis=5 (FS-DA) exige XJust com pelo menos 15 caracteres (atual: %d)", len(e.XJust))
+			return fmt.Errorf("TpEmis=%s exige XJust com pelo menos 15 caracteres (atual: %d)", e.TpEmis, len(e.XJust))
 		}
 	}
 	return nil

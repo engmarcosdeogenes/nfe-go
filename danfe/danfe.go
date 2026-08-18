@@ -43,13 +43,39 @@ func (d *Doc) MultiCell(w, h float64, txtStr, borderStr, alignStr string, fill b
 }
 
 // Gerar recebe o XML de uma NF-e (assinada ou nfeProc com protocolo)
-// e retorna os bytes do PDF do DANFE.
-func Gerar(nfeXML []byte) ([]byte, error) {
+// e retorna os bytes do PDF do DANFE. cancelada estampa a marca d'água
+// diagonal "CANCELADA" — o XML autorizado não muda com o cancelamento
+// (evento à parte), então sem isso o PDF de uma nota cancelada sai
+// idêntico ao de uma nota válida.
+func Gerar(nfeXML []byte, cancelada bool) ([]byte, error) {
 	dados, err := ParseNFeXML(nfeXML)
 	if err != nil {
 		return nil, fmt.Errorf("danfe: %w", err)
 	}
-	return renderizar(dados)
+	return renderizar(dados, cancelada, nil)
+}
+
+// InfoEPEC carrega os dados que a lei exige estampar no DANFE de uma NF-e
+// emitida em contingência EPEC (tpEmis=4) — Ajuste SINIEF 07/05 e NT
+// 2014/001 item 03.1a-F: frase fixa + protocolo do evento prévio + motivo +
+// hora de entrada em contingência. Sem isso o documento impresso não é
+// válido pra acompanhar a mercadoria enquanto a SEFAZ normal está fora do ar.
+type InfoEPEC struct {
+	Protocolo      string
+	Motivo         string
+	DhContingencia time.Time
+}
+
+// GerarComContingenciaEPEC gera o DANFE de uma NF-e que ainda não foi
+// autorizada pela SEFAZ normal (só o EPEC foi registrado no Ambiente
+// Nacional) — por isso recebe o XML assinado (não nfeProc: protocolo de
+// autorização ainda não existe) e o resultado do registro do EPEC à parte.
+func GerarComContingenciaEPEC(nfeXMLAssinado []byte, epec InfoEPEC) ([]byte, error) {
+	dados, err := ParseNFeXML(nfeXMLAssinado)
+	if err != nil {
+		return nil, fmt.Errorf("danfe: %w", err)
+	}
+	return renderizar(dados, false, &epec)
 }
 
 // ── Constantes de layout ──────────────────────────────────────────────────────
@@ -62,7 +88,7 @@ const (
 
 // ── Renderização ──────────────────────────────────────────────────────────────
 
-func renderizar(d *DadosDANFE) ([]byte, error) {
+func renderizar(d *DadosDANFE, cancelada bool, epec *InfoEPEC) ([]byte, error) {
 	pdf := novoDoc(fpdf.New("P", "mm", "A4", ""))
 	pdf.SetMargins(margem, margem, margem)
 	pdf.SetAutoPageBreak(true, 5)
@@ -105,7 +131,15 @@ func renderizar(d *DadosDANFE) ([]byte, error) {
 	// ── Bloco 9: Dados adicionais ─────────────────────────────────────────────
 	y = renderDadosAdicionais(pdf, d, y)
 
+	if epec != nil {
+		y = renderContingenciaEPEC(pdf, epec, y)
+	}
+
 	renderRodape(pdf, y)
+
+	if cancelada {
+		renderMarcaCancelada(pdf)
+	}
 
 	if pdf.Err() {
 		return nil, fmt.Errorf("danfe: fpdf: %s", pdf.Error())
@@ -757,6 +791,53 @@ func renderRodape(pdf *Doc, y float64) {
 	pdf.SetXY(margem, y+2)
 	pdf.CellFormat(larguraUtil, 3, "Impresso em "+time.Now().Format("02/01/2006")+" as "+time.Now().Format("15:04:05"), "", 0, "L", false, 0, "")
 	pdf.SetTextColor(0, 0, 0)
+}
+
+// renderMarcaCancelada estampa "CANCELADA" em vermelho, diagonal, sobre toda
+// a página — mesmo padrão visual usado por DANFEs de mercado pra distinguir
+// nota cancelada de nota válida à primeira vista.
+func renderMarcaCancelada(pdf *Doc) {
+	pdf.SetFont("Arial", "B", 60)
+	pdf.SetTextColor(200, 0, 0)
+	pdf.SetAlpha(0.35, "Normal")
+
+	centroX, centroY := larguraPage/2, 148.0
+	pdf.TransformBegin()
+	pdf.TransformRotate(45, centroX, centroY)
+	pdf.SetXY(0, centroY-15)
+	pdf.CellFormat(larguraPage, 30, "CANCELADA", "", 0, "C", false, 0, "")
+	pdf.TransformEnd()
+
+	pdf.SetAlpha(1, "Normal")
+	pdf.SetTextColor(0, 0, 0)
+}
+
+// renderContingenciaEPEC estampa a frase obrigatória (Ajuste SINIEF 07/05 +
+// NT 2014/001, item 03.1a-F) mais protocolo/motivo/hora do EPEC — sem isso o
+// DANFE impresso em contingência não vale pra acompanhar a mercadoria.
+func renderContingenciaEPEC(pdf *Doc, e *InfoEPEC, y float64) float64 {
+	altura := 15.0
+	pdf.SetDrawColor(200, 0, 0)
+	pdf.SetLineWidth(0.3)
+	pdf.Rect(margem, y, larguraUtil, altura, "D")
+
+	pdf.SetFont("Arial", "B", 8)
+	pdf.SetTextColor(200, 0, 0)
+	pdf.SetXY(margem+1, y+1)
+	pdf.MultiCell(larguraUtil-2, 3.2,
+		"DANFE IMPRESSO EM CONTINGENCIA - EPEC REGULARMENTE RECEBIDA PELA RECEITA FEDERAL DO BRASIL",
+		"", "C", false)
+
+	pdf.SetFont("Arial", "", 7)
+	pdf.SetXY(margem+1, y+8)
+	pdf.MultiCell(larguraUtil-2, 3,
+		fmt.Sprintf("Protocolo EPEC: %s   Motivo: %s   Entrada em contingencia: %s",
+			e.Protocolo, e.Motivo, e.DhContingencia.Format("02/01/2006 15:04:05")),
+		"", "L", false)
+
+	pdf.SetDrawColor(0, 0, 0)
+	pdf.SetTextColor(0, 0, 0)
+	return y + altura + 1
 }
 
 // ── Barcode Code 128 ──────────────────────────────────────────────────────────

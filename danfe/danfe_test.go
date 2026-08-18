@@ -86,7 +86,7 @@ func nfeAssinadaParaTeste(t *testing.T) []byte {
 func TestGerarDANFE(t *testing.T) {
 	nfeXML := nfeAssinadaParaTeste(t)
 
-	pdfBytes, err := danfe.Gerar(nfeXML)
+	pdfBytes, err := danfe.Gerar(nfeXML, false)
 	if err != nil {
 		t.Fatalf("Gerar: %v", err)
 	}
@@ -103,13 +103,37 @@ func TestGerarDANFE(t *testing.T) {
 	t.Logf("PDF gerado: %d bytes", len(pdfBytes))
 }
 
+// TestGerarDANFE_Cancelada garante que a marca d'água "CANCELADA" só entra
+// no PDF quando pedida — sem isso o documento de uma nota cancelada sai
+// idêntico ao de uma válida, já que o XML autorizado não muda com o evento
+// de cancelamento.
+func TestGerarDANFE_Cancelada(t *testing.T) {
+	nfeXML := nfeAssinadaParaTeste(t)
+
+	semMarca, err := danfe.Gerar(nfeXML, false)
+	if err != nil {
+		t.Fatalf("Gerar (sem cancelamento): %v", err)
+	}
+	comMarca, err := danfe.Gerar(nfeXML, true)
+	if err != nil {
+		t.Fatalf("Gerar (cancelada): %v", err)
+	}
+
+	if !strings.HasPrefix(string(comMarca[:4]), "%PDF") {
+		t.Error("output cancelado não é um PDF válido (não começa com %PDF)")
+	}
+	if len(comMarca) <= len(semMarca) {
+		t.Errorf("PDF cancelado (%d bytes) devia ser maior que o sem marca (%d bytes) pela marca d'água extra", len(comMarca), len(semMarca))
+	}
+}
+
 func TestGerarDANFE_SalvaArquivo(t *testing.T) {
 	if os.Getenv("DANFE_SALVAR") == "" {
 		t.Skip("set DANFE_SALVAR=1 para salvar o PDF em disco")
 	}
 
 	nfeXML := nfeAssinadaParaTeste(t)
-	pdfBytes, err := danfe.Gerar(nfeXML)
+	pdfBytes, err := danfe.Gerar(nfeXML, false)
 	if err != nil {
 		t.Fatalf("Gerar: %v", err)
 	}
@@ -265,7 +289,7 @@ func TestGerarComTransportadora(t *testing.T) {
 		dados.TranspNome, dados.TranspCNPJ, vol.Quantidade, vol.PesoBruto)
 
 	// 3. Gerar PDF com bloco de transporte preenchido
-	pdfBytes, err := danfe.Gerar([]byte(xmlComTransp))
+	pdfBytes, err := danfe.Gerar([]byte(xmlComTransp), false)
 	if err != nil {
 		t.Fatalf("Gerar: %v", err)
 	}
@@ -376,7 +400,7 @@ func TestGerarComDuplicatas(t *testing.T) {
 	t.Logf("Duplicatas parseadas: %d", len(dados.Duplicatas))
 
 	// 2. Gerar PDF — deve conter o bloco DUPLICATAS renderizado
-	pdfBytes, err := danfe.Gerar([]byte(xmlComDuplicatas))
+	pdfBytes, err := danfe.Gerar([]byte(xmlComDuplicatas), false)
 	if err != nil {
 		t.Fatalf("Gerar: %v", err)
 	}
@@ -488,7 +512,7 @@ func TestGerarDANFENFCe(t *testing.T) {
 // e procura pela sequência de bytes correta em cp1252, não em UTF-8 cru.
 func TestGerarDANFE_AcentosNaoQuebram(t *testing.T) {
 	nfeXML := nfeAssinadaParaTeste(t)
-	pdfBytes, err := danfe.Gerar(nfeXML)
+	pdfBytes, err := danfe.Gerar(nfeXML, false)
 	if err != nil {
 		t.Fatalf("Gerar: %v", err)
 	}

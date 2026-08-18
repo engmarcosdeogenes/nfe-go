@@ -43,6 +43,14 @@ const (
 	// SEFAZ da UF. Nem toda UF oferece — sem entrada na tabela, ObterURL
 	// devolve "" e o serviço falha com erro claro em vez de chutar URL.
 	ServicoConsultaCadastro Servico = "CadConsultaCadastro"
+	// ServicoRecepcaoEventoAN é o mesmo NFeRecepcaoEvento4, mas do Ambiente
+	// Nacional (cOrgao=91) — usado só pro registro do evento prévio EPEC.
+	// Precisa de constante própria porque o WSDL do AN nomeia a operação
+	// "nfeRecepcaoEventoNF" (com sufixo), diferente do "nfeRecepcaoEvento"
+	// usado pelas SEFAZ estaduais — confirmado por fetch real do WSDL
+	// (hom1.nfe.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx?WSDL);
+	// usar a action estadual aqui derruba com SOAP Fault "action not recognized".
+	ServicoRecepcaoEventoAN Servico = "NFeRecepcaoEventoAN"
 )
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -80,9 +88,23 @@ var svan = map[Servico]endpoints{
 	ServicoStatusServico:     {"https://www.sefazvirtual.fazenda.gov.br/NFeStatusServico4/NFeStatusServico4.asmx", "https://hom.sefazvirtual.fazenda.gov.br/NFeStatusServico4/NFeStatusServico4.asmx"},
 }
 
+// an = Ambiente Nacional (cOrgao=91) — usado só pro registro do evento prévio
+// EPEC (tpEvento 110140). Não é SVC-AN/SVC-RS (autorizadores de contingência
+// da NF-e inteira, tpEmis 6/7): o EPEC é sempre recebido pelo AN,
+// independente da UF do emitente ou de qual SVC ela usa em contingência —
+// confirmado na NT 2014/001 (item 03.1) e na tabela de webservices do portal
+// nacional (nfe.fazenda.gov.br/portal/webServices.aspx).
+var an = map[Servico]endpoints{
+	ServicoRecepcaoEventoAN: {"https://www.nfe.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx", "https://hom1.nfe.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx"},
+}
+
 // endpointsPorUF mapeia cUF (2 dígitos IBGE) para a tabela de endpoints daquele estado.
 // Estados sem entrada própria delegam para SVRS (ver ObterURL).
 var endpointsPorUF = map[string]map[Servico]endpoints{
+	// 91 não é UF — é o pseudo-código do Ambiente Nacional, usado só pra
+	// resolver ServicoRecepcaoEvento do EPEC (ver RegistrarEPEC).
+	"91": an,
+
 	// AM — Amazonas (usa SVAN)
 	"13": svan,
 
