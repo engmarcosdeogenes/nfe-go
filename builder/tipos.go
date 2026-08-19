@@ -39,6 +39,7 @@ type InfNFe struct {
 	Ide        Ide           `xml:"ide"`
 	Emit       Emitente      `xml:"emit"`
 	Dest       *Destinatario `xml:"dest,omitempty"`
+	AutXML     []AutXML      `xml:"autXML,omitempty"`
 	Det        []Detalhe     `xml:"det"`
 	Total      Total         `xml:"total"`
 	Transp     Transporte    `xml:"transp"`
@@ -46,6 +47,13 @@ type InfNFe struct {
 	Pag        Pagamento     `xml:"pag"`
 	InfAdic    *InfAdic      `xml:"infAdic,omitempty"`
 	InfRespTec *InfRespTec   `xml:"infRespTec,omitempty"`
+}
+
+// AutXML autoriza terceiro (contador, transportadora) a baixar o XML da nota
+// pelo portal da SEFAZ, sem precisar da chave de acesso.
+type AutXML struct {
+	CNPJ string `xml:"CNPJ,omitempty"`
+	CPF  string `xml:"CPF,omitempty"`
 }
 
 // InfRespTec identifica o responsável técnico pelo sistema emissor —
@@ -183,12 +191,30 @@ type Produto struct {
 // ── Impostos ─────────────────────────────────────────────────────────────────
 
 type Imposto struct {
-	VTotTrib string  `xml:"vTotTrib,omitempty"`
-	ICMS     *ICMS   `xml:"ICMS,omitempty"`
-	IPI      *IPI    `xml:"IPI,omitempty"`
-	PIS      PIS     `xml:"PIS"`
-	COFINS   COFINS  `xml:"COFINS"`
-	IBSCBS   *IBSCBS `xml:"IBSCBS,omitempty"`
+	VTotTrib   string      `xml:"vTotTrib,omitempty"`
+	ICMS       *ICMS       `xml:"ICMS,omitempty"`
+	IPI        *IPI        `xml:"IPI,omitempty"`
+	PIS        PIS         `xml:"PIS"`
+	COFINS     COFINS      `xml:"COFINS"`
+	ICMSUFDest *ICMSUFDest `xml:"ICMSUFDest,omitempty"`
+	IBSCBS     *IBSCBS     `xml:"IBSCBS,omitempty"`
+}
+
+// ICMSUFDest é o DIFAL (EC 87/2015, NT 2015.003) — só se aplica a venda
+// interestadual pra consumidor final não contribuinte (IndIEDest=9); venda
+// interestadual pra contribuinte revendedor não entra aqui. PICMSInterPart
+// fixo em "100" porque a partilha gradual (2016-2018) acabou em 2019 -- hoje
+// 100% do diferencial vai pro Estado de destino.
+type ICMSUFDest struct {
+	VBCUFDest      string `xml:"vBCUFDest"`
+	VBCFCPUFDest   string `xml:"vBCFCPUFDest,omitempty"` // vazio quando o UF de destino não tem FCP pro produto
+	PFCPUFDest     string `xml:"pFCPUFDest,omitempty"`
+	PICMSUFDest    string `xml:"pICMSUFDest"`
+	PICMSInter     string `xml:"pICMSInter"` // alíquota interestadual (4/7/12%, tabela CONFAZ)
+	PICMSInterPart string `xml:"pICMSInterPart"`
+	VFCPUFDest     string `xml:"vFCPUFDest,omitempty"`
+	VICMSUFDest    string `xml:"vICMSUFDest"`
+	VICMSUFRemet   string `xml:"vICMSUFRemet"`
 }
 
 // IBSCBS — grupo UB12/UB15 da NT 2025.002-RTC (reforma tributária, LC
@@ -474,26 +500,29 @@ type GCBSTotalIBS struct {
 }
 
 type ICMSTot struct {
-	VBC        string `xml:"vBC"`
-	VICMS      string `xml:"vICMS"`
-	VICMSDeson string `xml:"vICMSDeson"`
-	VFCP       string `xml:"vFCP"`
-	VBCST      string `xml:"vBCST"`
-	VST        string `xml:"vST"`
-	VFCPST     string `xml:"vFCPST"`
-	VFCPSTRet  string `xml:"vFCPSTRet"`
-	VProd      string `xml:"vProd"`
-	VFrete     string `xml:"vFrete"`
-	VSeg       string `xml:"vSeg"`
-	VDesc      string `xml:"vDesc"`
-	VII        string `xml:"vII"`
-	VIPI       string `xml:"vIPI"`
-	VIPIDevol  string `xml:"vIPIDevol"`
-	VPIS       string `xml:"vPIS"`
-	VCOFINS    string `xml:"vCOFINS"`
-	VOutro     string `xml:"vOutro"`
-	VNF        string `xml:"vNF"`
-	VTotTrib   string `xml:"vTotTrib"`
+	VBC          string `xml:"vBC"`
+	VICMS        string `xml:"vICMS"`
+	VICMSDeson   string `xml:"vICMSDeson"`
+	VFCPUFDest   string `xml:"vFCPUFDest,omitempty"`
+	VICMSUFDest  string `xml:"vICMSUFDest,omitempty"`
+	VICMSUFRemet string `xml:"vICMSUFRemet,omitempty"`
+	VFCP         string `xml:"vFCP"`
+	VBCST        string `xml:"vBCST"`
+	VST          string `xml:"vST"`
+	VFCPST       string `xml:"vFCPST"`
+	VFCPSTRet    string `xml:"vFCPSTRet"`
+	VProd        string `xml:"vProd"`
+	VFrete       string `xml:"vFrete"`
+	VSeg         string `xml:"vSeg"`
+	VDesc        string `xml:"vDesc"`
+	VII          string `xml:"vII"`
+	VIPI         string `xml:"vIPI"`
+	VIPIDevol    string `xml:"vIPIDevol"`
+	VPIS         string `xml:"vPIS"`
+	VCOFINS      string `xml:"vCOFINS"`
+	VOutro       string `xml:"vOutro"`
+	VNF          string `xml:"vNF"`
+	VTotTrib     string `xml:"vTotTrib"`
 }
 
 // ── Transporte ────────────────────────────────────────────────────────────────
@@ -558,6 +587,19 @@ type DetalhePag struct {
 	// 12=vale presente, 13=vale combustível, 15=boleto, 90=sem pagamento, 99=outros
 	XPag string `xml:"xPag,omitempty"` // obrigatório quando tPag=99
 	VPag string `xml:"vPag"`
+	Card *Card  `xml:"card,omitempty"` // grupo do cartão -- presente quando tPag=03 ou 04
+}
+
+// Card é o grupo de pagamento por cartão (detPag/card) -- tpIntegra é o único
+// filho obrigatório do grupo em si (1=integrado com o emissor via TEF/POS,
+// 2=não integrado), o resto é opcional no schema.
+type Card struct {
+	TpIntegra string `xml:"tpIntegra"`
+	CNPJ      string `xml:"CNPJ,omitempty"` // credenciadora da bandeira
+	TBand     string `xml:"tBand,omitempty"`
+	CAut      string `xml:"cAut,omitempty"`
+	CNPJReceb string `xml:"CNPJReceb,omitempty"`
+	IdTermPag string `xml:"idTermPag,omitempty"`
 }
 
 // ── Informações Adicionais ────────────────────────────────────────────────────

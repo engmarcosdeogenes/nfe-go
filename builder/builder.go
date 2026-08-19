@@ -42,6 +42,7 @@ type EntradaNFe struct {
 
 	Emitente  EntradaEmitente
 	Dest      EntradaDest
+	AutXML    []EntradaAutXML // terceiros autorizados a baixar o XML da nota
 	Itens     []EntradaItem
 	Frete     EntradaFrete
 	Pagamento []EntradaPagamento
@@ -63,6 +64,12 @@ type EntradaEmitente struct {
 	IE       string
 	CRT      string // "1", "2" ou "3"
 	End      EntradaEndereco
+}
+
+// EntradaAutXML identifica 1 terceiro autorizado a baixar o XML — CNPJ ou CPF.
+type EntradaAutXML struct {
+	CNPJ string
+	CPF  string
 }
 
 type EntradaDest struct {
@@ -94,6 +101,7 @@ type EntradaItem struct {
 	CEAN       string // código de barras EAN-13 (ou "SEM GTIN")
 	Nome       string
 	NCM        string // ex: "73089090" para estruturas metálicas
+	CEST       string // Código Especificador da Substituição Tributária — vazio se não aplicável
 	CFOP       string // ex: "5102"
 	CBenef     string // código de benefício fiscal (Convênio ICMS 190/17) -- vazio se o item não tem benefício
 	Unidade    string // "UN", "KG", "M2", etc.
@@ -104,6 +112,22 @@ type EntradaItem struct {
 	IPI        *EntradaIPI    // nil = sem IPI
 	IBSCBS     *EntradaIBSCBS // nil = sem grupo IBS/CBS (obrigatório em homologação desde 01/07/2026 pra CRT=3)
 	PISCofins  EntradaPISCofins
+	// ICMSUFDest = DIFAL (EC 87/2015) -- só quando o destinatário é consumidor
+	// final não contribuinte em outro Estado. nil = sem DIFAL (venda interna,
+	// venda interestadual pra revenda, ou Simples Nacional -- ver comentário
+	// em ICMSUFDest no tipos.go).
+	ICMSUFDest *EntradaICMSUFDest
+}
+
+// EntradaICMSUFDest informa as alíquotas do DIFAL -- alíquota interna do UF
+// de destino e interestadual variam por produto/UF/regime, sem default
+// seguro pra chutar (mesma filosofia de EntradaIBSCBS): quem chama informa,
+// tipicamente a partir de um cadastro de "ICMS por UF de destino" mantido
+// pela empresa.
+type EntradaICMSUFDest struct {
+	AliqInterna       float64 // pICMSUFDest -- alíquota interna do UF de destino pro produto
+	AliqInterestadual float64 // pICMSInter -- alíquota interestadual (4/7/12%, tabela CONFAZ)
+	AliqFCP           float64 // pFCPUFDest -- Fundo de Combate à Pobreza do UF de destino, 0 se não houver
 }
 
 // EntradaPISCofins sobrepõe o CST/alíquota de PIS/COFINS do item -- CST vazio
@@ -166,6 +190,15 @@ type EntradaPagamento struct {
 	XPag   string // obrigatório quando Forma="99" (descrição do meio de pagamento)
 	Valor  float64
 	APrazo bool
+
+	// Cartão (Forma="03" crédito ou "04" débito) -- TBand preenchido dispara o
+	// grupo card. TpIntegra vazio assume "2" (não integrado): a maioria dos
+	// emitentes não roda o pagamento pelo próprio sistema, só registra a
+	// bandeira usada na maquininha de terceiro.
+	TBand             string // 01=Visa, 02=Mastercard, 03=Amex, 06=Elo, 07=Hipercard... tabela oficial por código
+	TpIntegra         string // "1"=integrado (TEF/POS do emissor) "2"=não integrado (padrão quando TBand preenchido)
+	CNPJCredenciadora string
+	CAut              string // código de autorização da transação, se disponível
 }
 
 // ── Build ─────────────────────────────────────────────────────────────────────
@@ -321,10 +354,11 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 				XJust:    e.XJust,
 				NFref:    nfref,
 			},
-			Emit:  montarEmitente(e.Emitente),
-			Dest:  dest,
-			Det:   detalhes,
-			Total: Total{ICMSTot: totais, IBSCBSTot: ibscbsTot},
+			Emit:   montarEmitente(e.Emitente),
+			Dest:   dest,
+			AutXML: montarAutXML(e.AutXML),
+			Det:    detalhes,
+			Total:  Total{ICMSTot: totais, IBSCBSTot: ibscbsTot},
 			Transp: Transporte{
 				ModFrete: modFrete,
 			},
@@ -451,6 +485,17 @@ func montarDest(d EntradaDest) Destinatario {
 	return dest
 }
 
+func montarAutXML(entradas []EntradaAutXML) []AutXML {
+	if len(entradas) == 0 {
+		return nil
+	}
+	autXML := make([]AutXML, len(entradas))
+	for i, a := range entradas {
+		autXML[i] = AutXML{CNPJ: FormatarCNPJ(a.CNPJ), CPF: FormatarCPF(a.CPF)}
+	}
+	return autXML
+}
+
 func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	var detalhes []Detalhe
 	tot := ICMSTot{}
@@ -467,6 +512,10 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	vIBSMunTotal := 0.0
 	vIBSTotal := 0.0
 	vCBSTotal := 0.0
+	vIPITotal := 0.0
+	vICMSUFDestTotal := 0.0
+	vICMSUFRemetTotal := 0.0
+	vFCPUFDestTotal := 0.0
 	temIBSCBS := false
 
 	for i, item := range e.Itens {
@@ -481,6 +530,10 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 		vICMSSTTotal += totItem.vICMSST
 		vPISTotal += totItem.vPIS
 		vCOFINSTotal += totItem.vCOFINS
+		vIPITotal += totItem.vIPI
+		vICMSUFDestTotal += totItem.vICMSUFDest
+		vICMSUFRemetTotal += totItem.vICMSUFRemet
+		vFCPUFDestTotal += totItem.vFCPUFDest
 		if item.IBSCBS != nil {
 			temIBSCBS = true
 			vBCIBSCBSTotal += totItem.vBCIBSCBS
@@ -497,6 +550,7 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 				CEAN:     ceanOuSemGTIN(item.CEAN),
 				XProd:    item.Nome,
 				NCM:      item.NCM,
+				CEST:     item.CEST,
 				CBenef:   item.CBenef,
 				CFOP:     item.CFOP,
 				UCom:     item.Unidade,
@@ -529,6 +583,9 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	tot.VBC = fmtVal(vBCTotal)
 	tot.VICMS = fmtVal(vICMSTotal)
 	tot.VICMSDeson = "0.00"
+	tot.VFCPUFDest = fmtValOmitZero(vFCPUFDestTotal)
+	tot.VICMSUFDest = fmtValOmitZero(vICMSUFDestTotal)
+	tot.VICMSUFRemet = fmtValOmitZero(vICMSUFRemetTotal)
 	tot.VFCP = "0.00"
 	tot.VBCST = fmtVal(vBCSTTotal)
 	tot.VST = fmtVal(vICMSSTTotal)
@@ -536,7 +593,7 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	tot.VFCPSTRet = "0.00"
 	tot.VSeg = "0.00"
 	tot.VII = "0.00"
-	tot.VIPI = "0.00"
+	tot.VIPI = fmtVal(vIPITotal)
 	tot.VIPIDevol = "0.00"
 	tot.VPIS = fmtVal(vPISTotal)
 	tot.VCOFINS = fmtVal(vCOFINSTotal)
@@ -604,7 +661,9 @@ func montarPISCOFINS(p EntradaPISCofins, vProd float64, defaultCST string) (PIS,
 type totaisItem struct {
 	vBC, vICMS, vBCST, vICMSST             float64
 	vPIS, vCOFINS                          float64
+	vIPI                                   float64
 	vBCIBSCBS, vIBSUF, vIBSMun, vIBS, vCBS float64
+	vICMSUFDest, vICMSUFRemet, vFCPUFDest  float64
 }
 
 func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
@@ -695,6 +754,33 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
 			CEnq:    item.IPI.CEnq,
 			IPITrib: &IPITrib{CST: item.IPI.CST, VBC: fmtVal(vProd), PIPI: fmtVal(item.IPI.Aliq), VIPI: fmtVal(vIPI)},
 		}
+		tot.vIPI = vIPI
+	}
+
+	if item.ICMSUFDest != nil {
+		ud := item.ICMSUFDest
+		vBCUFDest := vProd
+		vICMSUFRemet := vBCUFDest * ud.AliqInterestadual / 100
+		vICMSUFDest := vBCUFDest * (ud.AliqInterna - ud.AliqInterestadual) / 100 // pICMSInterPart=100% desde 2019
+		if vICMSUFDest < 0 {
+			vICMSUFDest = 0
+		}
+		vFCPUFDest := vBCUFDest * ud.AliqFCP / 100
+		grupo := &ICMSUFDest{
+			VBCUFDest:      fmtVal(vBCUFDest),
+			PICMSUFDest:    fmtVal(ud.AliqInterna),
+			PICMSInter:     fmtVal(ud.AliqInterestadual),
+			PICMSInterPart: "100",
+			VICMSUFDest:    fmtVal(vICMSUFDest),
+			VICMSUFRemet:   fmtVal(vICMSUFRemet),
+		}
+		if ud.AliqFCP > 0 {
+			grupo.VBCFCPUFDest = fmtVal(vBCUFDest)
+			grupo.PFCPUFDest = fmtVal(ud.AliqFCP)
+			grupo.VFCPUFDest = fmtVal(vFCPUFDest)
+		}
+		imp.ICMSUFDest = grupo
+		tot.vICMSUFDest, tot.vICMSUFRemet, tot.vFCPUFDest = vICMSUFDest, vICMSUFRemet, vFCPUFDest
 	}
 
 	if item.IBSCBS != nil {
@@ -731,11 +817,25 @@ func montarPagamento(ps []EntradaPagamento) Pagamento {
 		if p.Forma == "99" && xPag == "" {
 			xPag = "Outros" // xPag é obrigatório quando tPag=99
 		}
+		var card *Card
+		if p.TBand != "" {
+			tpIntegra := p.TpIntegra
+			if tpIntegra == "" {
+				tpIntegra = "2"
+			}
+			card = &Card{
+				TpIntegra: tpIntegra,
+				CNPJ:      FormatarCNPJ(p.CNPJCredenciadora),
+				TBand:     p.TBand,
+				CAut:      p.CAut,
+			}
+		}
 		pag.DetPag = append(pag.DetPag, DetalhePag{
 			IndPag: indPag,
 			TPag:   p.Forma,
 			XPag:   xPag,
 			VPag:   fmtVal(p.Valor),
+			Card:   card,
 		})
 	}
 	if len(pag.DetPag) == 0 {

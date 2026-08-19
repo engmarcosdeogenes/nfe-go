@@ -755,6 +755,223 @@ func TestPagamentoSemPagamentos_DefaultSemPagto(t *testing.T) {
 	}
 }
 
+// ── CEST e AutXML ────────────────────────────────────────────────────────────
+
+func TestItem_CESTPreenchidoVaiParaXML(t *testing.T) {
+	e := entradaExemplo()
+	e.Itens[0].CEST = "2807100"
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build com CEST: %v", err)
+	}
+	if !strings.Contains(string(xmlBytes), "<CEST>2807100</CEST>") {
+		t.Error("esperava <CEST>2807100</CEST> no XML do item")
+	}
+}
+
+func TestItem_CESTVazioOmiteTag(t *testing.T) {
+	e := entradaExemplo()
+	e.Itens[0].CEST = ""
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build sem CEST: %v", err)
+	}
+	if strings.Contains(string(xmlBytes), "<CEST>") {
+		t.Error("CEST vazio não deveria aparecer no XML (omitempty)")
+	}
+}
+
+func TestAutXML_PreenchidoVaiParaXML(t *testing.T) {
+	e := entradaExemplo()
+	e.AutXML = []builder.EntradaAutXML{
+		{CNPJ: "11222333000181"},
+		{CPF: "12345678901"},
+	}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build com autXML: %v", err)
+	}
+	xmlStr := string(xmlBytes)
+	if !strings.Contains(xmlStr, "<autXML><CNPJ>11222333000181</CNPJ></autXML>") {
+		t.Errorf("esperava autXML com CNPJ no XML, corpo: %s", xmlStr)
+	}
+	if !strings.Contains(xmlStr, "<autXML><CPF>12345678901</CPF></autXML>") {
+		t.Errorf("esperava autXML com CPF no XML, corpo: %s", xmlStr)
+	}
+}
+
+func TestAutXML_VazioOmiteGrupo(t *testing.T) {
+	e := entradaExemplo()
+	e.AutXML = nil
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build sem autXML: %v", err)
+	}
+	if strings.Contains(string(xmlBytes), "<autXML>") {
+		t.Error("sem autXML, tag não deveria aparecer (omitempty)")
+	}
+}
+
+// ── Pagamento com cartão (grupo card / tBand) ────────────────────────────────
+
+func TestPagamentoComCartao_GeraGrupoCard(t *testing.T) {
+	e := entradaExemplo()
+	e.Pagamento = []builder.EntradaPagamento{
+		{Forma: "03", Valor: 100, TBand: "01", CNPJCredenciadora: "11222333000181"},
+	}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build com cartão: %v", err)
+	}
+	xmlStr := string(xmlBytes)
+	if !strings.Contains(xmlStr, "<tBand>01</tBand>") {
+		t.Errorf("esperava <tBand>01</tBand> no XML, corpo: %s", xmlStr)
+	}
+	// TpIntegra vazio assume "2" (não integrado) -- maioria dos emitentes não
+	// controla a maquininha pelo próprio sistema.
+	if !strings.Contains(xmlStr, "<tpIntegra>2</tpIntegra>") {
+		t.Errorf("esperava default tpIntegra=2, corpo: %s", xmlStr)
+	}
+	if !strings.Contains(xmlStr, "<CNPJ>11222333000181</CNPJ>") {
+		t.Errorf("esperava CNPJ da credenciadora no grupo card, corpo: %s", xmlStr)
+	}
+}
+
+func TestPagamentoSemCartao_NaoGeraGrupoCard(t *testing.T) {
+	e := entradaExemplo()
+	e.Pagamento = []builder.EntradaPagamento{{Forma: "01", Valor: 100}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build sem cartão: %v", err)
+	}
+	if strings.Contains(string(xmlBytes), "<card>") {
+		t.Error("pagamento em dinheiro não deveria gerar grupo card")
+	}
+}
+
+func TestPagamentoComCartao_TpIntegraExplicito(t *testing.T) {
+	e := entradaExemplo()
+	e.Pagamento = []builder.EntradaPagamento{
+		{Forma: "03", Valor: 100, TBand: "02", TpIntegra: "1"},
+	}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build com cartão integrado: %v", err)
+	}
+	if !strings.Contains(string(xmlBytes), "<tpIntegra>1</tpIntegra>") {
+		t.Error("tpIntegra explícito devia sobrepor o default")
+	}
+}
+
+// ── IPI ───────────────────────────────────────────────────────────────────────
+
+// TestIPI_TotalSomaCorretamente trava um bug real: montarDetalhes sempre
+// escrevia tot.VIPI="0.00" fixo, mesmo com item carregando IPI de verdade no
+// próprio <IPI> -- SEFAZ valida item×total, então a nota saía inconsistente
+// (validaria schema mas divergiria na regra de soma) sempre que alguém
+// preenchesse EntradaItem.IPI.
+func TestIPI_TotalSomaCorretamente(t *testing.T) {
+	e := entradaCRT3()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P001", CEAN: "SEM GTIN", Nome: "PRODUTO TESTE",
+		NCM: "73089090", CFOP: "5102", Unidade: "UN",
+		Quantidade: 10, VUnitario: 100.00,
+		ICMS: builder.EntradaICMS{CST: "00", Aliq: 12.0},
+		IPI:  &builder.EntradaIPI{CST: "50", Aliq: 10.0},
+	}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build com IPI: %v", err)
+	}
+	xmlStr := string(xmlBytes)
+	// vProd=1000, IPI 10% = 100.00, no total (ICMSTot/vIPI) e no item (IPITrib/vIPI).
+	if !strings.Contains(xmlStr, "<vIPI>100.00</vIPI>") {
+		t.Errorf("esperava vIPI=100.00 no item, corpo: %s", xmlStr)
+	}
+	// vIPI aparece 1x no item -- se o total também tivesse o valor certo em vez
+	// de "0.00" fixo, a segunda ocorrência seria dentro de <ICMSTot>.
+	if strings.Count(xmlStr, "<vIPI>100.00</vIPI>") != 2 {
+		t.Errorf("esperava vIPI=100.00 tanto no item quanto no total (ICMSTot), corpo: %s", xmlStr)
+	}
+}
+
+// ── DIFAL (ICMSUFDest, EC 87/2015) ───────────────────────────────────────────
+
+func TestDIFAL_GeraGrupoICMSUFDest(t *testing.T) {
+	e := entradaCRT3()
+	e.Dest.End.UF = "SP" // emitente é GO (entradaExemplo) -- venda interestadual
+	e.Dest.IndIEDest = "9"
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P001", CEAN: "SEM GTIN", Nome: "PRODUTO TESTE",
+		NCM: "73089090", CFOP: "6108", Unidade: "UN",
+		Quantidade: 1, VUnitario: 1000.00,
+		ICMS:       builder.EntradaICMS{CST: "00", Aliq: 7.0}, // 7% interestadual GO->SP
+		ICMSUFDest: &builder.EntradaICMSUFDest{AliqInterna: 18.0, AliqInterestadual: 7.0, AliqFCP: 2.0},
+	}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build com DIFAL: %v", err)
+	}
+	xmlStr := string(xmlBytes)
+	// vICMSUFRemet = 1000*7% = 70.00; vICMSUFDest = 1000*(18-7)% = 110.00; vFCPUFDest = 1000*2% = 20.00
+	for _, esperado := range []string{
+		"<vBCUFDest>1000.00</vBCUFDest>",
+		"<vBCFCPUFDest>1000.00</vBCFCPUFDest>",
+		"<pFCPUFDest>2.00</pFCPUFDest>",
+		"<pICMSUFDest>18.00</pICMSUFDest>",
+		"<pICMSInter>7.00</pICMSInter>",
+		"<pICMSInterPart>100</pICMSInterPart>",
+		"<vFCPUFDest>20.00</vFCPUFDest>",
+		"<vICMSUFDest>110.00</vICMSUFDest>",
+		"<vICMSUFRemet>70.00</vICMSUFRemet>",
+	} {
+		if !strings.Contains(xmlStr, esperado) {
+			t.Errorf("esperava %q no XML, corpo: %s", esperado, xmlStr)
+		}
+	}
+}
+
+func TestDIFAL_SemFCP_OmiteCamposDeFCP(t *testing.T) {
+	e := entradaCRT3()
+	e.Dest.End.UF = "SP"
+	e.Dest.IndIEDest = "9"
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P001", CEAN: "SEM GTIN", Nome: "PRODUTO TESTE",
+		NCM: "73089090", CFOP: "6108", Unidade: "UN",
+		Quantidade: 1, VUnitario: 1000.00,
+		ICMS:       builder.EntradaICMS{CST: "00", Aliq: 7.0},
+		ICMSUFDest: &builder.EntradaICMSUFDest{AliqInterna: 18.0, AliqInterestadual: 7.0}, // sem FCP
+	}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build DIFAL sem FCP: %v", err)
+	}
+	if strings.Contains(string(xmlBytes), "FCPUFDest") {
+		t.Error("UF sem FCP não deveria emitir nenhum campo *FCPUFDest*")
+	}
+}
+
+func TestDIFAL_NilNaoGeraGrupo(t *testing.T) {
+	xmlBytes, _, err := builder.Build(entradaCRT3ComItemPadrao())
+	if err != nil {
+		t.Fatalf("Build sem DIFAL: %v", err)
+	}
+	if strings.Contains(string(xmlBytes), "ICMSUFDest") {
+		t.Error("venda interna sem ICMSUFDest não deveria gerar o grupo")
+	}
+}
+
+func entradaCRT3ComItemPadrao() builder.EntradaNFe {
+	e := entradaCRT3()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P001", CEAN: "SEM GTIN", Nome: "PRODUTO TESTE",
+		NCM: "73089090", CFOP: "5102", Unidade: "UN",
+		Quantidade: 1, VUnitario: 100.00,
+		ICMS: builder.EntradaICMS{CST: "00", Aliq: 18.0},
+	}}
+	return e
+}
+
 // ── Contingência FS-DA (tpEmis=5) ────────────────────────────────────────────
 
 func TestContingencia_FSDA_XMLValido(t *testing.T) {
