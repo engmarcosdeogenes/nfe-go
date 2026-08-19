@@ -218,37 +218,177 @@ type ICMSUFDest struct {
 }
 
 // IBSCBS — grupo UB12/UB15 da NT 2025.002-RTC (reforma tributária, LC
-// 214/2025). Cobre só a tributação regular por item (sem monofasia, redução
-// de alíquota, diferimento, crédito presumido ou compra governamental --
-// esses ficam nos subgrupos opcionais gDif/gRed/gDevTrib/gTribRegular/
-// gTribCompraGov/gIBSCBSMono da mesma NT, ainda não implementados).
+// 214/2025), elemento <IBSCBS> = tipo TTribNFe real (DFeTiposBasicos_v1.00.xsd,
+// pacote PL_010e_v1.02, conferido linha a linha — não é tabela de PDF).
+// GIBSCBS/GIBSCBSMono/GTransfCred/GAjusteCompet são as 4 opções do choice
+// XSD (exatamente 1 preenchida, conforme o CST): regular, monofasia (CST
+// 620), transferência de crédito (CST 800), ajuste de competência (CST 811).
+// GEstornoCred e o par GCredPresOper/GCredPresIBSZFM são independentes desse
+// choice, sempre opcionais. Só a via "regular" (GIBSCBS) é montada por
+// montarDetalhes hoje — as outras 3 do choice e os subgrupos opcionais
+// (gDif/gDevTrib/gRed/gALCZFMCBS/gTribRegular/gTribCompraGov) ficam
+// disponíveis pra quem chamar o builder direto, sem UI/usecase que os
+// preencha ainda (nenhum cliente real precisou até aqui).
 type IBSCBS struct {
-	CST       string  `xml:"CST"`        // tabela CST do IBS/CBS (Portal NF-e > Documentos > Diversos)
-	ClassTrib string  `xml:"cClassTrib"` // tabela cClassTrib, Anexo III da NT
-	GIBSCBS   GIBSCBS `xml:"gIBSCBS"`
+	CST             string           `xml:"CST"`        // tabela CST do IBS/CBS (Portal NF-e > Documentos > Diversos)
+	ClassTrib       string           `xml:"cClassTrib"` // tabela cClassTrib, Anexo III da NT
+	IndDoacao       string           `xml:"indDoacao,omitempty"`
+	GIBSCBS         *GIBSCBS         `xml:"gIBSCBS,omitempty"`
+	GIBSCBSMono     *GIBSCBSMono     `xml:"gIBSCBSMono,omitempty"`
+	GTransfCred     *GTransfCred     `xml:"gTransfCred,omitempty"`
+	GAjusteCompet   *GAjusteCompet   `xml:"gAjusteCompet,omitempty"`
+	GEstornoCred    *GEstornoCred    `xml:"gEstornoCred,omitempty"`
+	GCredPresOper   *GCredPresOper   `xml:"gCredPresOper,omitempty"`
+	GCredPresIBSZFM *GCredPresIBSZFM `xml:"gCredPresIBSZFM,omitempty"`
 }
 
 type GIBSCBS struct {
-	VBC     string  `xml:"vBC"`
-	GIBSUF  GIBSUF  `xml:"gIBSUF"`
-	GIBSMun GIBSMun `xml:"gIBSMun"`
-	VIBS    string  `xml:"vIBS"` // soma de vIBSUF + vIBSMun
-	GCBS    GCBS    `xml:"gCBS"`
+	VBC            string          `xml:"vBC"`
+	GIBSUF         GIBSUF          `xml:"gIBSUF"`
+	GIBSMun        GIBSMun         `xml:"gIBSMun"`
+	VIBS           string          `xml:"vIBS"` // soma de vIBSUF + vIBSMun
+	GCBS           GCBS            `xml:"gCBS"`
+	GTribRegular   *GTribRegular   `xml:"gTribRegular,omitempty"`
+	GTribCompraGov *GTribCompraGov `xml:"gTribCompraGov,omitempty"`
 }
 
 type GIBSUF struct {
-	PIBSUF string `xml:"pIBSUF"`
-	VIBSUF string `xml:"vIBSUF"`
+	PIBSUF   string    `xml:"pIBSUF"`
+	GDif     *GDif     `xml:"gDif,omitempty"`
+	GDevTrib *GDevTrib `xml:"gDevTrib,omitempty"`
+	GRed     *GRed     `xml:"gRed,omitempty"`
+	VIBSUF   string    `xml:"vIBSUF"`
 }
 
 type GIBSMun struct {
-	PIBSMun string `xml:"pIBSMun"`
-	VIBSMun string `xml:"vIBSMun"`
+	PIBSMun  string    `xml:"pIBSMun"`
+	GDif     *GDif     `xml:"gDif,omitempty"`
+	GDevTrib *GDevTrib `xml:"gDevTrib,omitempty"`
+	GRed     *GRed     `xml:"gRed,omitempty"`
+	VIBSMun  string    `xml:"vIBSMun"`
 }
 
 type GCBS struct {
-	PCBS string `xml:"pCBS"`
+	PCBS       string      `xml:"pCBS"`
+	GDif       *GDif       `xml:"gDif,omitempty"`
+	GDevTrib   *GDevTrib   `xml:"gDevTrib,omitempty"`
+	GRed       *GRed       `xml:"gRed,omitempty"`
+	GALCZFMCBS *GALCZFMCBS `xml:"gALCZFMCBS,omitempty"`
+	VCBS       string      `xml:"vCBS"`
+}
+
+// GDif — diferimento (TDif). GDevTrib — devolução de tributo/"cashback"
+// (TDevTrib, LC 214/25 art. 118). GRed — redução de alíquota (TRed). Os 3
+// podem aparecer dentro de gIBSUF, gIBSMun e gCBS (mesmo tipo, 3 posições).
+type GDif struct {
+	PDif string `xml:"pDif"`
+	VDif string `xml:"vDif"`
+}
+
+type GDevTrib struct {
+	PDevTrib string `xml:"pDevTrib,omitempty"`
+	VDevTrib string `xml:"vDevTrib"`
+}
+
+type GRed struct {
+	PRedAliq  string `xml:"pRedAliq"`
+	PAliqEfet string `xml:"pAliqEfet"`
+}
+
+// GALCZFMCBS — operação em área incentivada (ALC/ZFM) com CBS zero (LC
+// 214/2025 arts. 451/466), só dentro de gCBS. tpALCZFMCBS: "1" ou "2".
+type GALCZFMCBS struct {
+	TpALCZFMCBS     string `xml:"tpALCZFMCBS"`
+	NProcSuframa    string `xml:"nProcSuframa,omitempty"`
+	PAliqEfetRegCBS string `xml:"pAliqEfetRegCBS"`
+	VTribRegCBS     string `xml:"vTribRegCBS"`
+}
+
+// GTribRegular — tributação que valeria se a condição resolutória/suspensiva
+// não se cumprisse (ex: operação ZFM/ALC, suspensão do tributo).
+type GTribRegular struct {
+	CSTReg             string `xml:"CSTReg"`
+	ClassTribReg       string `xml:"cClassTribReg"`
+	PAliqEfetRegIBSUF  string `xml:"pAliqEfetRegIBSUF"`
+	VTribRegIBSUF      string `xml:"vTribRegIBSUF"`
+	PAliqEfetRegIBSMun string `xml:"pAliqEfetRegIBSMun"`
+	VTribRegIBSMun     string `xml:"vTribRegIBSMun"`
+	PAliqEfetRegCBS    string `xml:"pAliqEfetRegCBS"`
+	VTribRegCBS        string `xml:"vTribRegCBS"`
+}
+
+// GTribCompraGov — composição do IBS/CBS em compra governamental (valor que
+// seria devido sem o redutor do Art. 473 da LC 214/2025).
+type GTribCompraGov struct {
+	PAliqIBSUF  string `xml:"pAliqIBSUF"`
+	VTribIBSUF  string `xml:"vTribIBSUF"`
+	PAliqIBSMun string `xml:"pAliqIBSMun"`
+	VTribIBSMun string `xml:"vTribIBSMun"`
+	PAliqCBS    string `xml:"pAliqCBS"`
+	VTribCBS    string `xml:"vTribCBS"`
+}
+
+// GIBSCBSMono — tributação monofásica (CST 620, combustíveis/cigarros). Só
+// gMonoPadrao (caso comum) é coberto — gMonoReten/gMonoRet/gMonoDif (cadeia
+// de retenção entre distribuidor/refinaria) ficam de fora.
+// ponytail: gMonoReten/gMonoRet/gMonoDif ausentes, sem cliente monofásico
+// pra validar contra SEFAZ; adicionar quando aparecer.
+type GIBSCBSMono struct {
+	GMonoPadrao *GMonoPadrao `xml:"gMonoPadrao,omitempty"`
+}
+
+type GMonoPadrao struct {
+	QBCMono  string `xml:"qBCMono"`
+	AdRemIBS string `xml:"adRemIBS"`
+	AdRemCBS string `xml:"adRemCBS"`
+	VIBSMono string `xml:"vIBSMono"`
+	VCBSMono string `xml:"vCBSMono"`
+}
+
+// GTransfCred — transferência de crédito acumulado (CST 800).
+type GTransfCred struct {
+	VIBS string `xml:"vIBS"`
 	VCBS string `xml:"vCBS"`
+}
+
+// GAjusteCompet — ajuste de competência (CST 811), referencia o período de
+// apuração (AAAA-MM) em que o crédito/débito se aplica.
+type GAjusteCompet struct {
+	CompetApur string `xml:"competApur"`
+	VIBS       string `xml:"vIBS"`
+	VCBS       string `xml:"vCBS"`
+}
+
+// GEstornoCred — estorno de crédito de IBS/CBS, independente do choice
+// acima (pode acompanhar qualquer CST, conforme indicador no cClassTrib).
+type GEstornoCred struct {
+	VIBSEstCred string `xml:"vIBSEstCred"`
+	VCBSEstCred string `xml:"vCBSEstCred"`
+}
+
+// GCredPresOper — crédito presumido da operação (tabela cCredPres, Anexo da
+// NT). GIBSCredPres/GCBSCredPres só entram quando o emitente de fato
+// aproveita o crédito (não é sempre preenchido mesmo com cCredPres setado).
+type GCredPresOper struct {
+	VBCCredPres  string     `xml:"vBCCredPres"`
+	CCredPres    string     `xml:"cCredPres"`
+	GIBSCredPres *GCredPres `xml:"gIBSCredPres,omitempty"`
+	GCBSCredPres *GCredPres `xml:"gCBSCredPres,omitempty"`
+}
+
+type GCredPres struct {
+	PCredPres        string `xml:"pCredPres"`
+	VCredPres        string `xml:"vCredPres,omitempty"`
+	VCredPresCondSus string `xml:"vCredPresCondSus,omitempty"`
+}
+
+// GCredPresIBSZFM — crédito presumido de IBS na Zona Franca de Manaus (LC
+// 214/25 art. 450 §1º). tpCredPresIBSZFM: 0=sem, 1=consumo final(55%),
+// 2=capital(75%), 3=intermediário(90,25%), 4=informática(100%).
+type GCredPresIBSZFM struct {
+	CompetApur       string `xml:"competApur"`
+	TpCredPresIBSZFM string `xml:"tpCredPresIBSZFM"`
+	VCredPresIBSZFM  string `xml:"vCredPresIBSZFM"`
 }
 
 // ICMS — envelope que contém exatamente um dos grupos abaixo

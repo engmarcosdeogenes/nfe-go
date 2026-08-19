@@ -792,7 +792,7 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
 		vCBS := vBCIBSCBS * ib.AliqCBS / 100
 		imp.IBSCBS = &IBSCBS{
 			CST: ib.CST, ClassTrib: ib.ClassTrib,
-			GIBSCBS: GIBSCBS{
+			GIBSCBS: &GIBSCBS{
 				VBC:     fmtVal(vBCIBSCBS),
 				GIBSUF:  GIBSUF{PIBSUF: fmtVal(ib.AliqIBSUF), VIBSUF: fmtVal(vIBSUF)},
 				GIBSMun: GIBSMun{PIBSMun: fmtVal(ib.AliqIBSMun), VIBSMun: fmtVal(vIBSMun)},

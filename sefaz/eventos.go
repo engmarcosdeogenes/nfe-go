@@ -326,8 +326,10 @@ func CartaCorrecao(c *cert.Certificado, chNFe, xCorrecao, xCondUso string, nSeqE
 // RetornoManifestacao é o retorno do NFeRecepcaoEvento para manifestação do destinatário.
 type RetornoManifestacao struct {
 	RetornoSEFAZ
-	ChNFe string
-	NProt string
+	ChNFe         string
+	NProt         string
+	CStatEvento   string
+	XMotivoEvento string
 }
 
 // tiposManifestacao mapeia o identificador curto para tpEvento + descEvento.
@@ -429,9 +431,11 @@ func (cl *Cliente) Manifestar(ctx context.Context, cnpj, chave, tipo, justificat
 
 	ret := result.Ret
 	return &RetornoManifestacao{
-		RetornoSEFAZ: ret.RetornoSEFAZ,
-		ChNFe:        ret.InfEvento.ChNFe,
-		NProt:        ret.InfEvento.NProt,
+		RetornoSEFAZ:  ret.RetornoSEFAZ,
+		ChNFe:         ret.InfEvento.ChNFe,
+		NProt:         ret.InfEvento.NProt,
+		CStatEvento:   ret.InfEvento.CStat,
+		XMotivoEvento: ret.InfEvento.XMotivo,
 	}, nil
 }
 
