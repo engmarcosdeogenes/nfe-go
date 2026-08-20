@@ -3,6 +3,9 @@ package danfe_test
 import (
 	"bytes"
 	"compress/zlib"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"os"
 	"strings"
@@ -124,6 +127,58 @@ func TestGerarDANFE_Cancelada(t *testing.T) {
 	}
 	if len(comMarca) <= len(semMarca) {
 		t.Errorf("PDF cancelado (%d bytes) devia ser maior que o sem marca (%d bytes) pela marca d'água extra", len(comMarca), len(semMarca))
+	}
+}
+
+// pngQuadradoParaTeste gera um PNG mínimo válido (8x8, vermelho sólido) —
+// suficiente pra image.DecodeConfig ler as dimensões sem precisar de um
+// logo real no repo.
+func pngQuadradoParaTeste(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			img.Set(x, y, color.RGBA{R: 200, G: 40, B: 40, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("png.Encode: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func TestGerarComLogo(t *testing.T) {
+	nfeXML := nfeAssinadaParaTeste(t)
+
+	semLogo, err := danfe.Gerar(nfeXML, false)
+	if err != nil {
+		t.Fatalf("Gerar: %v", err)
+	}
+	comLogo, err := danfe.GerarComLogo(nfeXML, false, danfe.Logo{Dados: pngQuadradoParaTeste(t), Tipo: "PNG"})
+	if err != nil {
+		t.Fatalf("GerarComLogo: %v", err)
+	}
+
+	if !strings.HasPrefix(string(comLogo[:4]), "%PDF") {
+		t.Error("output com logo não é um PDF válido")
+	}
+	if len(comLogo) <= len(semLogo) {
+		t.Errorf("PDF com logo (%d bytes) devia ser maior que sem logo (%d bytes) pela imagem extra embutida", len(comLogo), len(semLogo))
+	}
+}
+
+// TestGerarComLogo_ArquivoInvalidoNaoQuebra confirma que um logo corrompido
+// não derruba a emissão — a nota fiscal continua saindo, só sem a imagem.
+func TestGerarComLogo_ArquivoInvalidoNaoQuebra(t *testing.T) {
+	nfeXML := nfeAssinadaParaTeste(t)
+
+	pdfBytes, err := danfe.GerarComLogo(nfeXML, false, danfe.Logo{Dados: []byte("nao e uma imagem"), Tipo: "PNG"})
+	if err != nil {
+		t.Fatalf("GerarComLogo com arquivo invalido nao deveria falhar: %v", err)
+	}
+	if !strings.HasPrefix(string(pdfBytes[:4]), "%PDF") {
+		t.Error("output não é um PDF válido mesmo com logo invalido")
 	}
 }
 

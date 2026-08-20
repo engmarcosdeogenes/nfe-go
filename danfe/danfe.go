@@ -9,6 +9,8 @@ package danfe
 import (
 	"bytes"
 	"fmt"
+	"image"
+	_ "image/jpeg"
 	"image/png"
 	"time"
 
@@ -52,7 +54,26 @@ func Gerar(nfeXML []byte, cancelada bool) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("danfe: %w", err)
 	}
-	return renderizar(dados, cancelada, nil)
+	return renderizar(dados, cancelada, nil, nil)
+}
+
+// Logo é a marca do emitente estampada no canto superior esquerdo do bloco
+// "IDENTIFICAÇÃO DO EMITENTE" — Tipo é o que fpdf.ImageOptions espera
+// ("PNG" ou "JPG"), Dados é o arquivo bruto (não recodificado).
+type Logo struct {
+	Dados []byte
+	Tipo  string
+}
+
+// GerarComLogo é Gerar, mas estampando a marca do emitente — mesmo layout,
+// função separada em vez de mudar a assinatura de Gerar pra não quebrar
+// quem já consome a lib sem logo (ex: MetalurgicaBase).
+func GerarComLogo(nfeXML []byte, cancelada bool, logo Logo) ([]byte, error) {
+	dados, err := ParseNFeXML(nfeXML)
+	if err != nil {
+		return nil, fmt.Errorf("danfe: %w", err)
+	}
+	return renderizar(dados, cancelada, nil, &logo)
 }
 
 // InfoEPEC carrega os dados que a lei exige estampar no DANFE de uma NF-e
@@ -75,7 +96,7 @@ func GerarComContingenciaEPEC(nfeXMLAssinado []byte, epec InfoEPEC) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("danfe: %w", err)
 	}
-	return renderizar(dados, false, &epec)
+	return renderizar(dados, false, &epec, nil)
 }
 
 // ── Constantes de layout ──────────────────────────────────────────────────────
@@ -88,7 +109,7 @@ const (
 
 // ── Renderização ──────────────────────────────────────────────────────────────
 
-func renderizar(d *DadosDANFE, cancelada bool, epec *InfoEPEC) ([]byte, error) {
+func renderizar(d *DadosDANFE, cancelada bool, epec *InfoEPEC, logo *Logo) ([]byte, error) {
 	pdf := novoDoc(fpdf.New("P", "mm", "A4", ""))
 	pdf.SetMargins(margem, margem, margem)
 	pdf.SetAutoPageBreak(true, 5)
@@ -101,7 +122,7 @@ func renderizar(d *DadosDANFE, cancelada bool, epec *InfoEPEC) ([]byte, error) {
 	y := renderCanhoto(pdf, d)
 
 	// ── Bloco 1: Cabeçalho ────────────────────────────────────────────────────
-	y = renderCabecalho(pdf, d, y)
+	y = renderCabecalho(pdf, d, y, logo)
 
 	// ── Bloco 1b: Natureza da operação + protocolo, IE/IM/IEST/CNPJ ──────────
 	y = renderNatureza(pdf, d, y)
@@ -251,7 +272,7 @@ func celulaCampo(pdf *Doc, x, y, w, h float64, label, valor string) {
 
 // ── Cabeçalho ─────────────────────────────────────────────────────────────────
 
-func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64) float64 {
+func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64, logo *Logo) float64 {
 	lw := larguraUtil
 
 	altCab := 34.0
@@ -265,21 +286,41 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	pdf.SetXY(margem+1, y+0.5)
 	pdf.CellFormat(wEmit-2, 3, "IDENTIFICAÇÃO DO EMITENTE", "", 0, "C", false, 0, "")
 	pdf.SetTextColor(0, 0, 0)
+
+	// Quando há logo, reserva uma faixa fixa à esquerda (slot, não o tamanho
+	// real da imagem — mantém o texto sempre no mesmo lugar independente da
+	// proporção do arquivo enviado) e desenha nome/endereço só na largura
+	// restante, à direita do slot.
+	xTexto := margem + 1
+	wTexto := wEmit - 2
+	if logo != nil {
+		const wSlot, altSlot = 14.0, 12.0
+		if largura, altura := ajustarNaCaixa(logo, wSlot, altSlot); largura > 0 {
+			imgName := fmt.Sprintf("logo_emit_%p", logo)
+			pdf.RegisterImageOptionsReader(imgName, fpdf.ImageOptions{ImageType: logo.Tipo}, bytes.NewReader(logo.Dados))
+			xImg := margem + 1 + (wSlot-largura)/2
+			yImg := y + 5 + (altSlot-altura)/2
+			pdf.Image(imgName, xImg, yImg, largura, altura, false, "", 0, "")
+			xTexto = margem + 1 + wSlot + 2
+			wTexto = wEmit - 2 - wSlot - 2
+		}
+	}
+
 	pdf.SetFont("Arial", "B", 9)
-	pdf.SetXY(margem+1, y+5)
+	pdf.SetXY(xTexto, y+5)
 	nome := d.EmitNome
 	if d.EmitFantasia != "" {
 		nome = d.EmitFantasia
 	}
-	pdf.MultiCell(wEmit-2, 5, nome, "", "C", false)
+	pdf.MultiCell(wTexto, 5, nome, "", "C", false)
 	pdf.SetFont("Arial", "", 6)
 	end := d.EmitEnd
-	pdf.SetX(margem + 1)
-	pdf.CellFormat(wEmit-2, 3.5, end.Logradouro+", "+end.Numero, "", 2, "C", false, 0, "")
-	pdf.SetX(margem + 1)
-	pdf.CellFormat(wEmit-2, 3.5, end.Bairro+" - "+end.CEP, "", 2, "C", false, 0, "")
-	pdf.SetX(margem + 1)
-	pdf.CellFormat(wEmit-2, 3.5, end.Municipio+" - "+end.UF+"  Fone/Fax: "+end.Fone, "", 2, "C", false, 0, "")
+	pdf.SetX(xTexto)
+	pdf.CellFormat(wTexto, 3.5, end.Logradouro+", "+end.Numero, "", 2, "C", false, 0, "")
+	pdf.SetX(xTexto)
+	pdf.CellFormat(wTexto, 3.5, end.Bairro+" - "+end.CEP, "", 2, "C", false, 0, "")
+	pdf.SetX(xTexto)
+	pdf.CellFormat(wTexto, 3.5, end.Municipio+" - "+end.UF+"  Fone/Fax: "+end.Fone, "", 2, "C", false, 0, "")
 
 	// Bloco central DANFE (centro 16%)
 	wCentro := lw * 0.16
@@ -838,6 +879,25 @@ func renderContingenciaEPEC(pdf *Doc, e *InfoEPEC, y float64) float64 {
 	pdf.SetDrawColor(0, 0, 0)
 	pdf.SetTextColor(0, 0, 0)
 	return y + altura + 1
+}
+
+// ajustarNaCaixa calcula o tamanho (mm) da imagem dentro de uma caixa
+// wMax×hMax preservando proporção (contain, nunca distorce) — decodifica só
+// o cabeçalho (image.DecodeConfig), não a imagem inteira. Devolve 0,0 se o
+// arquivo não decodificar (logo ruim não pode derrubar a emissão de uma nota
+// fiscal real, só sai sem logo).
+func ajustarNaCaixa(logo *Logo, wMax, hMax float64) (largura, altura float64) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(logo.Dados))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0
+	}
+	proporcao := float64(cfg.Width) / float64(cfg.Height)
+	largura, altura = wMax, wMax/proporcao
+	if altura > hMax {
+		altura = hMax
+		largura = hMax * proporcao
+	}
+	return largura, altura
 }
 
 // ── Barcode Code 128 ──────────────────────────────────────────────────────────
