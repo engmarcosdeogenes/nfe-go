@@ -151,6 +151,13 @@ type EntradaIBSCBS struct {
 	AliqIBSUF  float64 // % de competência da UF
 	AliqIBSMun float64 // % de competência do Município
 	AliqCBS    float64 // %
+	// PercentualReducao — grupo gRed (redução de alíquota, LC 214/25 art.
+	// 125 e Anexos II-X: saúde/educação/insumo agropecuário/cultura em
+	// 60%, cesta básica/produtos in natura em 100%). 0 = sem redução
+	// (comportamento de sempre). Quem chama informa -- não tem tabela
+	// NCM/serviço->percentual embutida na lib, mesma filosofia do resto
+	// deste struct.
+	PercentualReducao float64
 }
 
 type EntradaICMS struct {
@@ -786,18 +793,38 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
 	if item.IBSCBS != nil {
 		ib := item.IBSCBS
 		vBCIBSCBS := vProd
-		vIBSUF := vBCIBSCBS * ib.AliqIBSUF / 100
-		vIBSMun := vBCIBSCBS * ib.AliqIBSMun / 100
+
+		// gRed: com redução, a alíquota efetiva (e o valor devido) sai
+		// menor que a nominal -- pIBSUF/pIBSMun/pCBS continuam mostrando a
+		// alíquota padrão, só o grupo gRed carrega o percentual reduzido e
+		// a alíquota efetiva (NT 2025.002-RTC, TRed).
+		fatorRed := 1 - ib.PercentualReducao/100
+		aliqEfetUF := ib.AliqIBSUF * fatorRed
+		aliqEfetMun := ib.AliqIBSMun * fatorRed
+		aliqEfetCBS := ib.AliqCBS * fatorRed
+
+		vIBSUF := vBCIBSCBS * aliqEfetUF / 100
+		vIBSMun := vBCIBSCBS * aliqEfetMun / 100
 		vIBS := vIBSUF + vIBSMun
-		vCBS := vBCIBSCBS * ib.AliqCBS / 100
+		vCBS := vBCIBSCBS * aliqEfetCBS / 100
+
+		gIBSUF := GIBSUF{PIBSUF: fmtVal(ib.AliqIBSUF), VIBSUF: fmtVal(vIBSUF)}
+		gIBSMun := GIBSMun{PIBSMun: fmtVal(ib.AliqIBSMun), VIBSMun: fmtVal(vIBSMun)}
+		gCBS := GCBS{PCBS: fmtVal(ib.AliqCBS), VCBS: fmtVal(vCBS)}
+		if ib.PercentualReducao > 0 {
+			gIBSUF.GRed = &GRed{PRedAliq: fmtVal(ib.PercentualReducao), PAliqEfet: fmtVal(aliqEfetUF)}
+			gIBSMun.GRed = &GRed{PRedAliq: fmtVal(ib.PercentualReducao), PAliqEfet: fmtVal(aliqEfetMun)}
+			gCBS.GRed = &GRed{PRedAliq: fmtVal(ib.PercentualReducao), PAliqEfet: fmtVal(aliqEfetCBS)}
+		}
+
 		imp.IBSCBS = &IBSCBS{
 			CST: ib.CST, ClassTrib: ib.ClassTrib,
 			GIBSCBS: &GIBSCBS{
 				VBC:     fmtVal(vBCIBSCBS),
-				GIBSUF:  GIBSUF{PIBSUF: fmtVal(ib.AliqIBSUF), VIBSUF: fmtVal(vIBSUF)},
-				GIBSMun: GIBSMun{PIBSMun: fmtVal(ib.AliqIBSMun), VIBSMun: fmtVal(vIBSMun)},
+				GIBSUF:  gIBSUF,
+				GIBSMun: gIBSMun,
 				VIBS:    fmtVal(vIBS),
-				GCBS:    GCBS{PCBS: fmtVal(ib.AliqCBS), VCBS: fmtVal(vCBS)},
+				GCBS:    gCBS,
 			},
 		}
 		tot.vBCIBSCBS, tot.vIBSUF, tot.vIBSMun, tot.vIBS, tot.vCBS = vBCIBSCBS, vIBSUF, vIBSMun, vIBS, vCBS

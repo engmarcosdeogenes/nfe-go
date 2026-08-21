@@ -409,6 +409,73 @@ func TestCRT3_IBSCBS(t *testing.T) {
 	}
 }
 
+// TestCRT3_IBSCBS_ComReducao cobre o grupo gRed (LC 214/25 art. 125,
+// redução de 60% -- saúde/educação/insumo agropecuário/cultura, já vigente
+// em 2026, não só em 2027). pIBSUF/pIBSMun/pCBS continuam com a alíquota
+// padrão; gRed carrega o percentual e a alíquota efetiva; vIBSUF/vIBSMun/vCBS
+// saem calculados sobre a efetiva, não a padrão.
+func TestCRT3_IBSCBS_ComReducao(t *testing.T) {
+	e := entradaCRT3()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P001", CEAN: "SEM GTIN", Nome: "MEDICAMENTO TESTE",
+		NCM: "30049099", CFOP: "5102", Unidade: "UN",
+		Quantidade: 10, VUnitario: 100.00,
+		ICMS: builder.EntradaICMS{CST: "00", Aliq: 12.0},
+		IBSCBS: &builder.EntradaIBSCBS{
+			CST: "200", ClassTrib: "200009",
+			AliqIBSUF: 0.1, AliqIBSMun: 0.0, AliqCBS: 0.9,
+			PercentualReducao: 60,
+		},
+	}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build CRT=3 IBSCBS com redução: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	ib := nfe.InfNFe.Det[0].Imposto.IBSCBS
+	if ib == nil {
+		t.Fatal("esperava grupo IBSCBS no item")
+	}
+	if ib.CST != "200" || ib.ClassTrib != "200009" {
+		t.Errorf("CST/cClassTrib = %q/%q", ib.CST, ib.ClassTrib)
+	}
+
+	gUF := ib.GIBSCBS.GIBSUF
+	if gUF.PIBSUF != "0.10" {
+		t.Errorf("pIBSUF = %q, esperava 0.10 (padrão, não a reduzida)", gUF.PIBSUF)
+	}
+	if gUF.GRed == nil {
+		t.Fatal("esperava grupo gRed em gIBSUF")
+	}
+	if gUF.GRed.PRedAliq != "60.00" || gUF.GRed.PAliqEfet != "0.04" {
+		t.Errorf("gRed = %+v, esperava PRedAliq=60.00 PAliqEfet=0.04 (0.10*40%%)", gUF.GRed)
+	}
+	if gUF.VIBSUF != "0.40" {
+		t.Errorf("vIBSUF = %q, esperava 0.40 (1000*0.04%%, sobre a alíquota efetiva)", gUF.VIBSUF)
+	}
+
+	gCBS := ib.GIBSCBS.GCBS
+	if gCBS.GRed == nil || gCBS.GRed.PAliqEfet != "0.36" {
+		t.Errorf("gCBS.gRed = %+v, esperava PAliqEfet=0.36 (0.90*40%%)", gCBS.GRed)
+	}
+	if gCBS.VCBS != "3.60" {
+		t.Errorf("vCBS = %q, esperava 3.60 (1000*0.36%%)", gCBS.VCBS)
+	}
+
+	// pIBSMun = 0 nesse teste -- redução de 60% sobre zero continua zero,
+	// mas o gRed ainda tem que aparecer (a redução se aplica, só o valor
+	// resultante é zero).
+	gMun := ib.GIBSCBS.GIBSMun
+	if gMun.GRed == nil || gMun.GRed.PAliqEfet != "0.00" {
+		t.Errorf("gIBSMun.gRed = %+v, esperava PAliqEfet=0.00", gMun.GRed)
+	}
+}
+
 // TestCRT3_SemIBSCBS_NaoAdicionaGrupo garante que item sem IBSCBS (nil)
 // continua sem o grupo -- não deve quebrar clientes CRT=1/2/4 nem gerar
 // IBSCBSTot vazio na NF-e (SEFAZ-GO rejeitaria "obrigatório").
