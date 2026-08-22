@@ -40,6 +40,7 @@ type DadosDANFE struct {
 	DestCNPJ  string
 	DestCPF   string
 	DestIE    string
+	DestIndIEDest string
 	DestEnd   enderecoDANFE
 
 	// Itens
@@ -285,6 +286,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 				CPF       string `xml:"CPF"`
 				XNome     string `xml:"xNome"`
 				IE        string `xml:"IE"`
+				IndIEDest string `xml:"indIEDest"`
 				Ender     xmlEndereco `xml:"enderDest"`
 			} `xml:"dest"`
 			Det   []xmlDet `xml:"det"`
@@ -373,6 +375,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 		DestCNPJ:        formatarCNPJ(inf.Dest.CNPJ),
 		DestCPF:         formatarCPF(inf.Dest.CPF),
 		DestIE:          inf.Dest.IE,
+		DestIndIEDest:   inf.Dest.IndIEDest,
 		DestEnd:         converterEndereco(inf.Dest.Ender),
 		InfCpl:          inf.InfAdic.InfCpl,
 		InfAdFisco:      inf.InfAdic.InfAdFisco,
@@ -636,6 +639,19 @@ func descricaoModFrete(codigo string) string {
 		return "4-Próprio Dest."
 	case "9":
 		return "9-Sem Transporte"
+	default:
+		return codigo
+	}
+}
+
+func descricaoIndIEDest(codigo string) string {
+	switch codigo {
+	case "1":
+		return "1 - Contribuinte ICMS"
+	case "2":
+		return "2 - Isento de Inscrição"
+	case "9":
+		return "9 - Não Contribuinte"
 	default:
 		return codigo
 	}

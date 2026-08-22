@@ -474,17 +474,19 @@ func renderDestinatario(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	celulaCampo(pdf, margem+wEnd+wBairro+wCEP, y, wDataSai, 9, "DATA DA SAÍDA/ENTRADA", d.DataSaida)
 	y += 9
 
-	// Linha 3: município, UF, fone, IE, hora de saída/entrada
-	wMun := lw * 0.35
-	wUF := lw * 0.08
-	wFone := lw * 0.18
-	wIE := lw * 0.22
-	wHoraSai := lw - wMun - wUF - wFone - wIE
+	// Linha 3: município, UF, fone, indicador IE, IE, hora de saída/entrada
+	wMun := lw * 0.28
+	wUF := lw * 0.06
+	wFone := lw * 0.14
+	wIndIE := lw * 0.20
+	wIE := lw * 0.16
+	wHoraSai := lw - wMun - wUF - wFone - wIndIE - wIE
 	celulaCampo(pdf, margem, y, wMun, 9, "MUNICÍPIO", end.Municipio)
 	celulaCampo(pdf, margem+wMun, y, wUF, 9, "UF", end.UF)
 	celulaCampo(pdf, margem+wMun+wUF, y, wFone, 9, "FONE/FAX", end.Fone)
-	celulaCampo(pdf, margem+wMun+wUF+wFone, y, wIE, 9, "INSCRIÇÃO ESTADUAL", d.DestIE)
-	celulaCampo(pdf, margem+wMun+wUF+wFone+wIE, y, wHoraSai, 9, "HORA DA SAÍDA/ENTRADA", d.HoraSaida)
+	celulaCampo(pdf, margem+wMun+wUF+wFone, y, wIndIE, 9, "INDICADOR IE", descricaoIndIEDest(d.DestIndIEDest))
+	celulaCampo(pdf, margem+wMun+wUF+wFone+wIndIE, y, wIE, 9, "INSCRIÇÃO ESTADUAL", d.DestIE)
+	celulaCampo(pdf, margem+wMun+wUF+wFone+wIndIE+wIE, y, wHoraSai, 9, "HORA DA SAÍDA/ENTRADA", d.HoraSaida)
 	y += 9
 
 	_ = alt

@@ -704,6 +704,9 @@ func TestParseNFeXML(t *testing.T) {
 	if dados.VNF != 3400.00 {
 		t.Errorf("VNF: %.2f (esperava 3400.00)", dados.VNF)
 	}
+	if dados.DestIndIEDest != "1" {
+		t.Errorf("DestIndIEDest: %q (esperava 1)", dados.DestIndIEDest)
+	}
 	if dados.ChaveAcesso == "" {
 		t.Error("ChaveAcesso vazia")
 	}
