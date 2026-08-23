@@ -328,11 +328,14 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64, logo *Logo) float64 {
 	setarBorda(pdf)
 	pdf.Rect(xCentro, y, wCentro, altCab, "D")
 	pdf.SetFont("Arial", "B", 8)
-	pdf.SetXY(xCentro, y+3)
-	pdf.CellFormat(wCentro, 5, "DANFE", "", 2, "C", false, 0, "")
+	pdf.SetXY(xCentro, y+2)
+	pdf.CellFormat(wCentro, 4, "DANFE", "", 2, "C", false, 0, "")
 	pdf.SetFont("Arial", "", 5.5)
 	pdf.SetX(xCentro)
-	pdf.MultiCell(wCentro, 3.5, "Documento Auxiliar da\nNota Fiscal Eletrônica", "", "C", false)
+	// 3 linhas @ 3mm = 9mm, encosta exatamente no início do bloco Saída/Entrada
+	// (y+15) -- sem folga daria overlap, como aconteceu quando essa legenda
+	// virou 3 linhas (era 2) e continuou com o mesmo y fixo de antes.
+	pdf.MultiCell(wCentro, 3, "Documento auxiliar\nda Nota Fiscal\nEletrônica", "", "C", false)
 	pdf.SetFont("Arial", "", 6)
 	saida, entrada, digito := "0", "0", "1"
 	if d.TipoNF == "0" {
@@ -346,7 +349,7 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64, logo *Logo) float64 {
 	pdf.SetXY(xCentro+wCentro-7, y+15)
 	pdf.CellFormat(6, 8, digito, "1", 0, "C", false, 0, "")
 	pdf.SetFont("Arial", "", 6)
-	pdf.SetXY(xCentro+1, y+25)
+	pdf.SetXY(xCentro+1, y+24)
 	nfNum := fmt.Sprintf("%09s", d.NumeroNota)
 	if len(nfNum) == 9 {
 		nfNum = nfNum[0:3] + "." + nfNum[3:6] + "." + nfNum[6:9]
