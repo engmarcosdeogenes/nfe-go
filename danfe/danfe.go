@@ -614,9 +614,16 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 		for i, c := range cols {
 			pdf.SetXY(x, y)
 			if i == idxDescricao {
-				// Descrição com wrap
+				// MultiCell desenha a própria borda por linha (altura fixa
+				// 3.5mm), que não bate com altLinha (altura real da linha,
+				// já contando o maior wrap entre as colunas) -- sobrava um
+				// vão em branco entre a borda da descrição e a borda da
+				// linha. Retângulo à parte, na altura certa, texto sem
+				// borda própria por cima.
+				setarBorda(pdf)
+				pdf.Rect(x, y, c.w, altLinha, "D")
 				pdf.SetFont("Arial", "", 6)
-				pdf.MultiCell(c.w, 3.5, vals[i], "1", "L", false)
+				pdf.MultiCell(c.w, 3.5, vals[i], "", "L", false)
 				pdf.SetFont("Arial", "", 6)
 			} else {
 				pdf.CellFormat(c.w, altLinha, vals[i], "1", 0, c.align, false, 0, "")
