@@ -334,15 +334,17 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64, logo *Logo) float64 {
 	pdf.SetX(xCentro)
 	pdf.MultiCell(wCentro, 3.5, "Documento Auxiliar da\nNota Fiscal Eletrônica", "", "C", false)
 	pdf.SetFont("Arial", "", 6)
-	tipoDesc := "1 - SAÍDA"
+	saida, entrada, digito := "0", "0", "1"
 	if d.TipoNF == "0" {
-		tipoDesc = "0 - ENTRADA"
+		entrada = "1"
+	} else {
+		saida = "1"
 	}
 	pdf.SetXY(xCentro+1, y+15)
-	pdf.MultiCell(wCentro-2, 3, "0 - ENTRADA\n1 - SAÍDA", "", "L", false)
+	pdf.MultiCell(wCentro-9, 3, "Saída: "+saida+"\nEntrada: "+entrada, "", "L", false)
 	pdf.SetFont("Arial", "B", 12)
 	pdf.SetXY(xCentro+wCentro-7, y+15)
-	pdf.CellFormat(6, 8, tipoDesc[:1], "1", 0, "C", false, 0, "")
+	pdf.CellFormat(6, 8, digito, "1", 0, "C", false, 0, "")
 	pdf.SetFont("Arial", "", 6)
 	pdf.SetXY(xCentro+1, y+25)
 	nfNum := fmt.Sprintf("%09s", d.NumeroNota)
@@ -379,7 +381,7 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64, logo *Logo) float64 {
 	pdf.SetFont("Arial", "", 5)
 	pdf.SetTextColor(80, 80, 80)
 	pdf.SetX(xDir + 1)
-	pdf.MultiCell(wDir-2, 3, "Consulta de autenticidade no portal nacional da NF-e\nwww.nfe.fazenda.gov.br/portal ou no site da Sefaz Autorizadora", "", "C", false)
+	pdf.MultiCell(wDir-2, 3, "Consulta de autenticidade no portal nacional da NF-e\nwww.nfe.fazenda.gov.br ou no site da Sefaz Autorizadora", "", "C", false)
 	pdf.SetTextColor(0, 0, 0)
 
 	// Homologação watermark — posição fixa no centro vertical da página (não
@@ -410,13 +412,25 @@ func renderNatureza(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	celulaCampo(pdf, margem+wNat, y, lw-wNat, 8, "PROTOCOLO DE AUTORIZAÇÃO DE USO", protocolo)
 	y += 8
 
+	// Coluna de Inscrição Municipal só aparece quando a empresa tem uma --
+	// modelo real (Alterdata) some com a caixa em vez de mostrar vazia,
+	// redistribuindo a largura entre as 3 restantes.
+	if d.EmitIM == "" {
+		wIE := lw * 0.22
+		wIEST := lw * 0.40
+		wCNPJ := lw - wIE - wIEST
+		celulaCampo(pdf, margem, y, wIE, 8, "INSCRIÇÃO ESTADUAL", d.EmitIE)
+		celulaCampo(pdf, margem+wIE, y, wIEST, 8, "INSCRIÇÃO ESTADUAL SUB. TRIBUTÁRIA", d.EmitIEST)
+		celulaCampo(pdf, margem+wIE+wIEST, y, wCNPJ, 8, "CNPJ / CPF", d.EmitCNPJ)
+		return y + 8
+	}
 	wIE := lw * 0.22
 	wIM := lw * 0.20
 	wIEST := lw * 0.30
 	wCNPJ := lw - wIE - wIM - wIEST
 	celulaCampo(pdf, margem, y, wIE, 8, "INSCRIÇÃO ESTADUAL", d.EmitIE)
 	celulaCampo(pdf, margem+wIE, y, wIM, 8, "INSCRIÇÃO MUNICIPAL", d.EmitIM)
-	celulaCampo(pdf, margem+wIE+wIM, y, wIEST, 8, "INSCRIÇÃO ESTADUAL DO SUBST. TRIBUT.", d.EmitIEST)
+	celulaCampo(pdf, margem+wIE+wIM, y, wIEST, 8, "INSCRIÇÃO ESTADUAL SUB. TRIBUTÁRIA", d.EmitIEST)
 	celulaCampo(pdf, margem+wIE+wIM+wIEST, y, wCNPJ, 8, "CNPJ / CPF", d.EmitCNPJ)
 	return y + 8
 }
@@ -505,40 +519,52 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	pdf.CellFormat(lw, 4, "DADOS DOS PRODUTOS / SERVIÇOS", "1", 2, "C", true, 0, "")
 	y += 4
 
-	// Colunas: código, descrição, NCM, orig/CST-CSOSN, CFOP, un, qtd, v.unit, v.total, v.desc, BC ICMS, v.ICMS, v.IPI, al.ICMS, al.IPI
+	// Colunas: código, descrição, NCM, CST/CSOSN, CFOP, un, qtd, v.unit, v.total, BC ICMS, v.ICMS, v.IPI, al.ICMS, al.IPI
 	const idxDescricao = 1
 	cols := []struct {
 		label string
 		w     float64
 		align string
 	}{
-		{"CÓD.PROD.", 11, "C"},
-		{"DESCRIÇÃO DO PRODUTO / SERVIÇO", 31, "L"},
-		{"NCM/SH", 10, "C"},
-		{"ORIG/CST", 9, "C"},
-		{"CFOP", 8, "C"},
-		{"UN", 6, "C"},
-		{"QUANT", 10, "R"},
-		{"VL UNIT", 11, "R"},
-		{"VL TOTAL", 11, "R"},
-		{"VL DESC", 10, "R"},
-		{"BC ICMS", 11, "R"},
-		{"VL ICMS", 11, "R"},
-		{"VL IPI", 10, "R"},
-		{"ALQ ICMS", 10, "R"},
-		{"ALQ IPI", 9, "R"},
+		{"CÓD.PROD.", 14, "C"},
+		{"DESCRIÇÃO DO PRODUTO / SERVIÇO", 46, "L"},
+		{"NCM/SH", 13, "C"},
+		{"CST", 10, "C"},
+		{"CFOP", 9, "C"},
+		{"UN", 7, "C"},
+		{"QUANT", 11, "R"},
+		{"VL UNIT", 13, "R"},
+		{"VL TOTAL", 13, "R"},
+		{"BC ICMS", 13, "R"},
+		{"VL ICMS", 13, "R"},
+		{"VL IPI", 12, "R"},
+		{"ALQ ICMS", 13, "R"},
+		{"ALQ IPI", 13, "R"},
 	}
 
-	// Linha de cabeçalho das colunas
+	// Cabeçalho em 2 linhas -- a de cima só tem a célula "ALÍQUOTAS" mesclada
+	// sobre as 2 últimas colunas (ICMS/IPI), igual ao modelo de mercado usado
+	// como referência.
 	pdf.SetFont("Arial", "B", 4.5)
 	pdf.SetFillColor(245, 245, 245)
 	x := margem
-	for _, c := range cols {
+	for i, c := range cols {
 		pdf.SetXY(x, y)
-		pdf.CellFormat(c.w, 5, c.label, "1", 0, "C", true, 0, "")
+		if i == len(cols)-2 {
+			pdf.CellFormat(cols[i].w+cols[i+1].w, 2.5, "ALÍQUOTAS", "1", 0, "C", true, 0, "")
+		} else if i < len(cols)-1 {
+			pdf.CellFormat(c.w, 2.5, "", "1", 0, "C", true, 0, "")
+		}
 		x += c.w
 	}
-	y += 5
+	y += 2.5
+	x = margem
+	for _, c := range cols {
+		pdf.SetXY(x, y)
+		pdf.CellFormat(c.w, 2.5, c.label, "1", 0, "C", true, 0, "")
+		x += c.w
+	}
+	y += 2.5
 
 	// Linhas de itens
 	pdf.SetFont("Arial", "", 6)
@@ -554,13 +580,12 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 			item.CProd,
 			item.XProd,
 			item.NCM,
-			item.Orig + "/" + item.CST,
+			item.CST,
 			item.CFOP,
 			item.Unidade,
 			formatarQtd(item.Qtd),
 			formatarMoeda(item.VUnit),
 			formatarMoeda(item.VProd),
-			formatarMoeda(item.VDesc),
 			formatarMoeda(item.VBC),
 			formatarMoeda(item.ICMS),
 			formatarMoeda(item.IPI),
@@ -606,38 +631,55 @@ func renderTotais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	pdf.CellFormat(lw, 4, "CÁLCULO DO IMPOSTO", "1", 2, "C", true, 0, "")
 	y += 4
 
-	// Linha 1
-	w := lw / 8
+	// Grade de 7 colunas, mesmo layout/rótulo do modelo de mercado usado como
+	// referência (inclui PIS/COFINS, que não são campo oficial obrigatório do
+	// leiaute DANFE mas o mercado padronizou mostrar).
+	w := lw / 7
 	campos1 := [][2]string{
-		{"BASE DE CÁLC. DO ICMS", formatarMoeda(d.VBC)},
-		{"VALOR DO ICMS", formatarMoeda(d.VICMS)},
-		{"BASE DE CÁLC. ICMS S.T.", formatarMoeda(d.VBCST)},
-		{"VALOR DO ICMS SUBST.", formatarMoeda(d.VST)},
-		{"V. IMP. IMPORTAÇÃO", formatarMoeda(d.VII)},
-		{"V. ICMS UF REMET.", formatarMoeda(d.VICMSUFRemet)},
-		{"V. FCP UF DEST.", formatarMoeda(d.VFCPUFDest)},
-		{"V. TOTAL PRODUTOS", formatarMoeda(d.VProd)},
+		{"BASE DE CÁLC. DE ICMS", formatarMoeda(d.VBC)},
+		{"VALOR ICMS", formatarMoeda(d.VICMS)},
+		{"BASE DE CÁLC. DE ICMS ST", formatarMoeda(d.VBCST)},
+		{"VALOR ICMS ST", formatarMoeda(d.VST)},
+		{"VALOR PIS", formatarMoeda(d.VPIS)},
+		{"VALOR COFINS", formatarMoeda(d.VCOFINS)},
+		{"VALOR TOTAL DOS PRODUTOS", formatarMoeda(d.VProd)},
 	}
 	for i, c := range campos1 {
 		celulaCampo(pdf, margem+float64(i)*w, y, w, 9, c[0], c[1])
 	}
 	y += 9
 
-	// Linha 2
 	campos2 := [][2]string{
-		{"VALOR DO FRETE", formatarMoeda(d.VFrete)},
-		{"VALOR DO SEGURO", formatarMoeda(d.VSeg)},
-		{"DESCONTO", formatarMoeda(d.VDesc)},
-		{"OUTRAS DESPESAS", formatarMoeda(d.VOutro)},
-		{"VALOR TOTAL IPI", formatarMoeda(d.VIPI)},
-		{"V. ICMS UF DEST.", formatarMoeda(d.VICMSUFDest)},
-		{"V. TOT. TRIB.", formatarMoeda(d.VTotTrib)},
-		{"V. TOTAL DA NOTA", formatarMoeda(d.VNF)},
+		{"VALOR DESCONTO", formatarMoeda(d.VDesc)},
+		{"VALOR FRETE", formatarMoeda(d.VFrete)},
+		{"VALOR SEGURO", formatarMoeda(d.VSeg)},
+		{"VALOR DESP. ACESSÓRIAS", formatarMoeda(d.VOutro)},
+		{"VALOR IPI", formatarMoeda(d.VIPI)},
+		{"VALOR IMP. IMPORT.", formatarMoeda(d.VII)},
+		{"VALOR TOTAL DA NOTA", formatarMoeda(d.VNF)},
 	}
 	for i, c := range campos2 {
 		celulaCampo(pdf, margem+float64(i)*w, y, w, 9, c[0], c[1])
 	}
 	y += 9
+
+	// Linha extra só quando a nota tem partilha de ICMS interestadual
+	// (DIFAL/EC 87 ou FCP) -- o modelo de referência não tem essa linha
+	// porque a nota dele não precisava. Continua saindo quando o dado
+	// existe, só não ocupa espaço quando não existe.
+	if d.VICMSUFRemet != 0 || d.VFCPUFDest != 0 || d.VICMSUFDest != 0 || d.VTotTrib != 0 {
+		wDifal := lw / 4
+		camposDifal := [][2]string{
+			{"V. ICMS UF REMET.", formatarMoeda(d.VICMSUFRemet)},
+			{"V. FCP UF DEST.", formatarMoeda(d.VFCPUFDest)},
+			{"V. ICMS UF DEST.", formatarMoeda(d.VICMSUFDest)},
+			{"V. TOT. TRIB.", formatarMoeda(d.VTotTrib)},
+		}
+		for i, c := range camposDifal {
+			celulaCampo(pdf, margem+float64(i)*wDifal, y, wDifal, 9, c[0], c[1])
+		}
+		y += 9
+	}
 
 	return y
 }
@@ -652,6 +694,16 @@ func renderTransporte(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	pdf.SetXY(margem, y)
 	pdf.CellFormat(lw, 4, "TRANSPORTADOR / VOLUMES TRANSPORTADOS", "1", 2, "C", true, 0, "")
 	y += 4
+
+	// Sem transportador nem volumes de verdade -- colapsa pra 1 linha só
+	// (mesmo comportamento do modelo de referência: não desenha 3 linhas de
+	// caixa vazia quando não tem o que mostrar).
+	temTransportador := d.TranspNome != "" || d.TranspCNPJ != "" || d.TranspEnd != ""
+	temVolumes := len(d.Volumes) > 0
+	if !temTransportador && !temVolumes {
+		celulaCampo(pdf, margem, y, lw, 9, "FRETE POR CONTA", descricaoModFrete(d.ModFrete))
+		return y + 9
+	}
 
 	// Linha 1: Nome/RS | Frete | Código ANTT | Placa | UF | CNPJ/CPF
 	wNome := lw * 0.32
