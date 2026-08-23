@@ -861,22 +861,25 @@ func renderDadosAdicionais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 		return y
 	}
 
+	// No modelo de referência esse bloco (sempre o último antes do rodapé
+	// "Impresso em") fica encostado perto do fim da página, não logo depois
+	// da seção anterior -- é a POSIÇÃO que empurra pra baixo quando sobra
+	// espaço, a altura da caixa continua fixa (esticar a caixa deixa uma
+	// caixa enorme quase vazia, pior que o problema original).
+	const altBloco = 20.0
+	const pageBottom = 297.0 - margem
+	const rodapeReservado = 8.0
+	yMinimo := pageBottom - rodapeReservado - altBloco - 4 // 4 = altura do título
+	if y < yMinimo {
+		y = yMinimo
+	}
+
 	pdf.SetFont("Arial", "B", 7)
 	pdf.SetFillColor(230, 230, 230)
 	pdf.SetXY(margem, y)
 	pdf.CellFormat(lw, 4, "DADOS ADICIONAIS", "1", 2, "C", true, 0, "")
 	y += 4
 
-	// No modelo de referência esse bloco é o último da página e estica até
-	// perto do rodapé, em vez de parar numa altura fixa e deixar uma sobra
-	// enorme de página em branco -- é sempre a última seção antes do
-	// "Impresso em", então dá pra calcular a altura disponível de verdade.
-	const pageBottom = 297.0 - margem
-	const rodapeReservado = 8.0
-	altBloco := pageBottom - rodapeReservado - y
-	if altBloco < 20.0 {
-		altBloco = 20.0
-	}
 	wInteresse := lw * 0.65
 	wFisco := lw - wInteresse
 
