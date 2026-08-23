@@ -865,18 +865,11 @@ func renderDadosAdicionais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 		return y
 	}
 
-	// No modelo de referência esse bloco (sempre o último antes do rodapé
-	// "Impresso em") fica encostado perto do fim da página, não logo depois
-	// da seção anterior -- é a POSIÇÃO que empurra pra baixo quando sobra
-	// espaço, a altura da caixa continua fixa (esticar a caixa deixa uma
-	// caixa enorme quase vazia, pior que o problema original).
+	// Empurrar pra perto do rodapé (v1.5.7/v1.5.8) deixava um vão enorme e
+	// vazio quando a nota tem poucos itens -- o Marcos apontou que isso
+	// dificulta até a própria revisão visual. Fica logo depois da seção
+	// anterior, igual todo outro bloco do documento.
 	const altBloco = 20.0
-	const pageBottom = 297.0 - margem
-	const rodapeReservado = 8.0
-	yMinimo := pageBottom - rodapeReservado - altBloco - 4 // 4 = altura do título
-	if y < yMinimo {
-		y = yMinimo
-	}
 
 	pdf.SetFont("Times", "B", 8)
 	pdf.SetFillColor(230, 230, 230)
