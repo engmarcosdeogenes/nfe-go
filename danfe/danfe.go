@@ -551,29 +551,30 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 		{"ALQ IPI", 13, "R"},
 	}
 
-	// Cabeçalho em 2 linhas -- a de cima só tem a célula "ALÍQUOTAS" mesclada
-	// sobre as 2 últimas colunas (ICMS/IPI), igual ao modelo de mercado usado
-	// como referência.
+	// Todas as colunas ocupam a altura cheia do cabeçalho (5mm) -- só as 2
+	// últimas (ICMS/IPI) se dividem em 2 sub-linhas por baixo de "ALÍQUOTAS"
+	// mesclada, igual ao modelo de mercado usado como referência (a versão
+	// anterior desenhava uma linha em branco por cima de TODAS as colunas,
+	// não só dessas 2).
+	const altCabecalhoItens = 5.0
 	pdf.SetFont("Arial", "B", 4.5)
 	pdf.SetFillColor(245, 245, 245)
 	x := margem
 	for i, c := range cols {
 		pdf.SetXY(x, y)
 		if i == len(cols)-2 {
-			pdf.CellFormat(cols[i].w+cols[i+1].w, 2.5, "ALÍQUOTAS", "1", 0, "C", true, 0, "")
+			pdf.CellFormat(cols[i].w+cols[i+1].w, altCabecalhoItens/2, "ALÍQUOTAS", "1", 0, "C", true, 0, "")
 		} else if i < len(cols)-1 {
-			pdf.CellFormat(c.w, 2.5, "", "1", 0, "C", true, 0, "")
+			pdf.CellFormat(c.w, altCabecalhoItens, c.label, "1", 0, "C", true, 0, "")
 		}
 		x += c.w
 	}
-	y += 2.5
-	x = margem
-	for _, c := range cols {
-		pdf.SetXY(x, y)
-		pdf.CellFormat(c.w, 2.5, c.label, "1", 0, "C", true, 0, "")
-		x += c.w
-	}
-	y += 2.5
+	x = margem + (lw - cols[len(cols)-2].w - cols[len(cols)-1].w)
+	pdf.SetXY(x, y+altCabecalhoItens/2)
+	pdf.CellFormat(cols[len(cols)-2].w, altCabecalhoItens/2, cols[len(cols)-2].label, "1", 0, "C", true, 0, "")
+	pdf.SetXY(x+cols[len(cols)-2].w, y+altCabecalhoItens/2)
+	pdf.CellFormat(cols[len(cols)-1].w, altCabecalhoItens/2, cols[len(cols)-1].label, "1", 0, "C", true, 0, "")
+	y += altCabecalhoItens
 
 	// Linhas de itens
 	pdf.SetFont("Arial", "", 6)
