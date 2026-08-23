@@ -867,7 +867,16 @@ func renderDadosAdicionais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	pdf.CellFormat(lw, 4, "DADOS ADICIONAIS", "1", 2, "C", true, 0, "")
 	y += 4
 
-	altBloco := 20.0
+	// No modelo de referência esse bloco é o último da página e estica até
+	// perto do rodapé, em vez de parar numa altura fixa e deixar uma sobra
+	// enorme de página em branco -- é sempre a última seção antes do
+	// "Impresso em", então dá pra calcular a altura disponível de verdade.
+	const pageBottom = 297.0 - margem
+	const rodapeReservado = 8.0
+	altBloco := pageBottom - rodapeReservado - y
+	if altBloco < 20.0 {
+		altBloco = 20.0
+	}
 	wInteresse := lw * 0.65
 	wFisco := lw - wInteresse
 
