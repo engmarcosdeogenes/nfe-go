@@ -21,7 +21,7 @@ import (
 )
 
 // Doc envolve *fpdf.Fpdf só pra passar todo texto por tr antes de desenhar.
-// A fonte core "Arial" do PDF (sem TTF embutida) espera bytes cp1252/WinAnsi,
+// A fonte core "Times" do PDF (sem TTF embutida) espera bytes cp1252/WinAnsi,
 // não UTF-8 — sem essa tradução, qualquer acento (ç, ã, é...) sai como
 // mojibake no PDF final (ex: "Goiás" virava "GoiÃ¡s"), tanto nos rótulos fixos
 // em português quanto nos dados dinâmicos (nome, endereço). Os outros métodos
@@ -116,7 +116,7 @@ func renderizar(d *DadosDANFE, cancelada bool, epec *InfoEPEC, logo *Logo) ([]by
 	pdf.AddPage()
 
 	// Fonte padrão
-	pdf.SetFont("Arial", "", 7)
+	pdf.SetFont("Times", "", 7)
 
 	// ── Bloco 0: Canhoto de recebimento ───────────────────────────────────────
 	y := renderCanhoto(pdf, d)
@@ -136,19 +136,23 @@ func renderizar(d *DadosDANFE, cancelada bool, epec *InfoEPEC, logo *Logo) ([]by
 	// ── Bloco 3: Destinatário ─────────────────────────────────────────────────
 	y = renderDestinatario(pdf, d, y) + gapSecao
 
-	// ── Bloco 4: Itens ────────────────────────────────────────────────────────
-	y = renderItens(pdf, d, y) + gapSecao
+	// ── Bloco 4: Duplicatas (cobrança parcelada) ──────────────────────────────
+	if len(d.Duplicatas) > 0 {
+		y = renderDuplicatas(pdf, d, y) + gapSecao
+	}
 
+	// Ordem oficial do leiaute (MOC 7.0 Anexo II, conferida contra o modelo de
+	// mercado usado como referência): Cálculo do Imposto e Transportador vêm
+	// ANTES de Dados do Produto/Serviço, não depois -- a versão anterior
+	// desenhava a tabela de itens logo após o Destinatário, invertido.
 	// ── Bloco 5: Cálculo do imposto ───────────────────────────────────────────
 	y = renderTotais(pdf, d, y) + gapSecao
 
 	// ── Bloco 6: Transporte ───────────────────────────────────────────────────
-	y = renderTransporte(pdf, d, y)
+	y = renderTransporte(pdf, d, y) + gapSecao
 
-	// ── Bloco 7: Duplicatas (cobrança parcelada) ──────────────────────────────
-	if len(d.Duplicatas) > 0 {
-		y = renderDuplicatas(pdf, d, y+gapSecao)
-	}
+	// ── Bloco 7: Itens ────────────────────────────────────────────────────────
+	y = renderItens(pdf, d, y)
 
 	// ── Bloco 8: Dados de pagamento ───────────────────────────────────────────
 	if len(d.Pagamentos) > 0 {
@@ -220,13 +224,13 @@ func renderCanhoto(pdf *Doc, d *DadosDANFE) float64 {
 		"RECEBEMOS DE %s OS PRODUTOS/SERVIÇOS CONSTANTES NA NOTA FISCAL ELETRÔNICA INDICADA AO LADO - DESTINATÁRIO: %s - %s - EMISSÃO: %s - VALOR TOTAL: R$ %s",
 		nome, d.DestNome, endStr, d.DataEmissao, formatarMoeda(d.VNF),
 	)
-	pdf.SetFont("Arial", "", 6)
+	pdf.SetFont("Times", "", 6)
 	pdf.SetTextColor(0, 0, 0)
 	pdf.SetXY(margem+1, y+0.5)
 	pdf.MultiCell(wEsq-2, 3, recebemos, "", "L", false)
 
 	wData := wEsq * 0.3
-	pdf.SetFont("Arial", "", 5)
+	pdf.SetFont("Times", "", 5)
 	pdf.SetTextColor(80, 80, 80)
 	pdf.SetXY(margem+1, y+altCanhoto-4)
 	pdf.CellFormat(wData-1, 3, "DATA DE RECEBIMENTO", "", 0, "L", false, 0, "")
@@ -235,11 +239,11 @@ func renderCanhoto(pdf *Doc, d *DadosDANFE) float64 {
 	setarBorda(pdf)
 	pdf.Line(margem+wData, y+altCanhoto-5, margem+wData, y+altCanhoto)
 
-	pdf.SetFont("Arial", "B", 8)
+	pdf.SetFont("Times", "B", 8)
 	pdf.SetTextColor(0, 0, 0)
 	pdf.SetXY(margem+wEsq+1, y+1)
 	pdf.CellFormat(wDir-2, 4, "NF-e", "", 2, "L", false, 0, "")
-	pdf.SetFont("Arial", "", 6)
+	pdf.SetFont("Times", "", 6)
 	pdf.SetX(margem + wEsq + 1)
 	pdf.CellFormat(wDir-2, 3.5, "Nº: "+d.NumeroNota, "", 2, "L", false, 0, "")
 	pdf.SetX(margem + wEsq + 1)
@@ -267,11 +271,11 @@ func celulaCampo(pdf *Doc, x, y, w, h float64, label, valor string) {
 	setarBorda(pdf)
 	pdf.Rect(x, y, w, h, "D")
 	pdf.SetXY(x+1, y+0.5)
-	pdf.SetFont("Arial", "", 5)
+	pdf.SetFont("Times", "", 5.5)
 	pdf.SetTextColor(80, 80, 80)
 	pdf.CellFormat(w-2, 3, label, "", 0, "L", false, 0, "")
 	pdf.SetXY(x+1, y+4)
-	pdf.SetFont("Arial", "B", 7)
+	pdf.SetFont("Times", "", 8.5)
 	pdf.SetTextColor(0, 0, 0)
 	pdf.CellFormat(w-2, 4, valor, "", 0, "L", false, 0, "")
 }
@@ -287,7 +291,7 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64, logo *Logo) float64 {
 	wEmit := lw * 0.38
 	setarBorda(pdf)
 	pdf.Rect(margem, y, wEmit, altCab, "D")
-	pdf.SetFont("Arial", "", 5.5)
+	pdf.SetFont("Times", "", 5.5)
 	pdf.SetTextColor(80, 80, 80)
 	pdf.SetXY(margem+1, y+0.5)
 	pdf.CellFormat(wEmit-2, 3, "IDENTIFICAÇÃO DO EMITENTE", "", 0, "C", false, 0, "")
@@ -312,14 +316,14 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64, logo *Logo) float64 {
 		}
 	}
 
-	pdf.SetFont("Arial", "B", 9)
+	pdf.SetFont("Times", "B", 10)
 	pdf.SetXY(xTexto, y+5)
 	nome := d.EmitNome
 	if d.EmitFantasia != "" {
 		nome = d.EmitFantasia
 	}
 	pdf.MultiCell(wTexto, 5, nome, "", "C", false)
-	pdf.SetFont("Arial", "", 6)
+	pdf.SetFont("Times", "", 6.5)
 	end := d.EmitEnd
 	pdf.SetX(xTexto)
 	pdf.CellFormat(wTexto, 3.5, end.Logradouro+", "+end.Numero, "", 2, "C", false, 0, "")
@@ -333,16 +337,16 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64, logo *Logo) float64 {
 	xCentro := margem + wEmit
 	setarBorda(pdf)
 	pdf.Rect(xCentro, y, wCentro, altCab, "D")
-	pdf.SetFont("Arial", "B", 8)
+	pdf.SetFont("Times", "B", 10)
 	pdf.SetXY(xCentro, y+2)
 	pdf.CellFormat(wCentro, 4, "DANFE", "", 2, "C", false, 0, "")
-	pdf.SetFont("Arial", "", 5.5)
+	pdf.SetFont("Times", "", 5.5)
 	pdf.SetX(xCentro)
 	// 3 linhas @ 3mm = 9mm, encosta exatamente no início do bloco Saída/Entrada
 	// (y+15) -- sem folga daria overlap, como aconteceu quando essa legenda
 	// virou 3 linhas (era 2) e continuou com o mesmo y fixo de antes.
 	pdf.MultiCell(wCentro, 3, "Documento auxiliar\nda Nota Fiscal\nEletrônica", "", "C", false)
-	pdf.SetFont("Arial", "", 6)
+	pdf.SetFont("Times", "B", 7)
 	saida, entrada, digito := "0", "0", "1"
 	if d.TipoNF == "0" {
 		entrada = "1"
@@ -351,10 +355,10 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64, logo *Logo) float64 {
 	}
 	pdf.SetXY(xCentro+1, y+15)
 	pdf.MultiCell(wCentro-9, 3, "Saída: "+saida+"\nEntrada: "+entrada, "", "L", false)
-	pdf.SetFont("Arial", "B", 12)
+	pdf.SetFont("Times", "B", 12)
 	pdf.SetXY(xCentro+wCentro-7, y+15)
 	pdf.CellFormat(6, 8, digito, "1", 0, "C", false, 0, "")
-	pdf.SetFont("Arial", "", 6)
+	pdf.SetFont("Times", "B", 7)
 	pdf.SetXY(xCentro+1, y+24)
 	nfNum := fmt.Sprintf("%09s", d.NumeroNota)
 	if len(nfNum) == 9 {
@@ -379,15 +383,15 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64, logo *Logo) float64 {
 		}
 	}
 
-	pdf.SetFont("Arial", "", 5)
+	pdf.SetFont("Times", "", 5)
 	pdf.SetTextColor(80, 80, 80)
 	pdf.SetXY(xDir+1, y+12.5)
 	pdf.CellFormat(wDir-2, 3, "CHAVE DE ACESSO", "", 2, "C", false, 0, "")
-	pdf.SetFont("Arial", "B", 7)
+	pdf.SetFont("Times", "B", 8)
 	pdf.SetTextColor(0, 0, 0)
 	pdf.SetX(xDir + 1)
 	pdf.CellFormat(wDir-2, 4, formatarChave(d.ChaveAcesso), "", 2, "C", false, 0, "")
-	pdf.SetFont("Arial", "", 5)
+	pdf.SetFont("Times", "", 5)
 	pdf.SetTextColor(80, 80, 80)
 	pdf.SetX(xDir + 1)
 	pdf.MultiCell(wDir-2, 3, "Consulta de autenticidade no portal nacional da NF-e\nwww.nfe.fazenda.gov.br ou no site da Sefaz Autorizadora", "", "C", false)
@@ -397,7 +401,7 @@ func renderCabecalho(pdf *Doc, d *DadosDANFE, y float64, logo *Logo) float64 {
 	// relativa ao y do cabeçalho), pra não precisar reajustar toda vez que um
 	// bloco novo (ex: canhoto) mudar a altura do que vem antes.
 	if d.TpAmb == "2" {
-		pdf.SetFont("Arial", "B", 48)
+		pdf.SetFont("Times", "B", 48)
 		pdf.SetTextColor(220, 220, 220)
 		pdf.SetXY(margem, 140)
 		pdf.CellFormat(lw, 20, "SEM VALOR FISCAL", "", 0, "C", false, 0, "")
@@ -457,7 +461,7 @@ func renderDestinatario(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	alt := 22.0
 
 	// Rótulo da seção
-	pdf.SetFont("Arial", "B", 7)
+	pdf.SetFont("Times", "B", 8)
 	pdf.SetFillColor(230, 230, 230)
 	pdf.SetXY(margem, y)
 	pdf.CellFormat(lw, 4, "DESTINATÁRIO / REMETENTE", "1", 2, "C", true, 0, "")
@@ -522,7 +526,7 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
 	// Cabeçalho da tabela
-	pdf.SetFont("Arial", "B", 7)
+	pdf.SetFont("Times", "B", 8)
 	pdf.SetFillColor(230, 230, 230)
 	pdf.SetXY(margem, y)
 	pdf.CellFormat(lw, 4, "DADOS DOS PRODUTOS / SERVIÇOS", "1", 2, "C", true, 0, "")
@@ -557,7 +561,7 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	// anterior desenhava uma linha em branco por cima de TODAS as colunas,
 	// não só dessas 2).
 	const altCabecalhoItens = 5.0
-	pdf.SetFont("Arial", "B", 4.5)
+	pdf.SetFont("Times", "B", 5.5)
 	pdf.SetFillColor(245, 245, 245)
 	x := margem
 	for i, c := range cols {
@@ -577,7 +581,7 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	y += altCabecalhoItens
 
 	// Linhas de itens
-	pdf.SetFont("Arial", "", 6)
+	pdf.SetFont("Times", "", 7)
 	for _, item := range d.Itens {
 		// Verificar se precisa de nova página
 		if y > 250 {
@@ -606,7 +610,7 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 		// Calcular altura necessária para o nome do produto
 		altLinha := 5.0
 		descW := cols[idxDescricao].w - 2
-		pdf.SetFont("Arial", "", 6)
+		pdf.SetFont("Times", "", 7)
 		linhasDesc := pdf.SplitLines([]byte(pdf.tr(item.XProd)), descW)
 		if len(linhasDesc) > 1 {
 			altLinha = float64(len(linhasDesc)) * 3.5
@@ -623,9 +627,9 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 				// borda própria por cima.
 				setarBorda(pdf)
 				pdf.Rect(x, y, c.w, altLinha, "D")
-				pdf.SetFont("Arial", "", 6)
+				pdf.SetFont("Times", "", 7)
 				pdf.MultiCell(c.w, 3.5, vals[i], "", "L", false)
-				pdf.SetFont("Arial", "", 6)
+				pdf.SetFont("Times", "", 7)
 			} else {
 				pdf.CellFormat(c.w, altLinha, vals[i], "1", 0, c.align, false, 0, "")
 			}
@@ -642,7 +646,7 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64) float64 {
 func renderTotais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
-	pdf.SetFont("Arial", "B", 7)
+	pdf.SetFont("Times", "B", 8)
 	pdf.SetFillColor(230, 230, 230)
 	pdf.SetXY(margem, y)
 	pdf.CellFormat(lw, 4, "CÁLCULO DO IMPOSTO", "1", 2, "C", true, 0, "")
@@ -706,7 +710,7 @@ func renderTotais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 func renderTransporte(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
-	pdf.SetFont("Arial", "B", 7)
+	pdf.SetFont("Times", "B", 8)
 	pdf.SetFillColor(230, 230, 230)
 	pdf.SetXY(margem, y)
 	pdf.CellFormat(lw, 4, "TRANSPORTADOR / VOLUMES TRANSPORTADOS", "1", 2, "C", true, 0, "")
@@ -777,7 +781,7 @@ func renderDuplicatas(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
 	// Cabeçalho da seção
-	pdf.SetFont("Arial", "B", 7)
+	pdf.SetFont("Times", "B", 8)
 	pdf.SetFillColor(230, 230, 230)
 	pdf.SetXY(margem, y)
 	pdf.CellFormat(lw, 4, "DUPLICATAS", "1", 2, "C", true, 0, "")
@@ -803,7 +807,7 @@ func renderDuplicatas(pdf *Doc, d *DadosDANFE, y float64) float64 {
 			pdf.Rect(x, y, wCel, altCelula, "D")
 
 			// Labels (5pt, cinza)
-			pdf.SetFont("Arial", "", 5)
+			pdf.SetFont("Times", "", 5)
 			pdf.SetTextColor(80, 80, 80)
 			pdf.SetXY(x+0.5, y+0.5)
 			pdf.CellFormat(w3-1, 3, "Nº", "", 0, "L", false, 0, "")
@@ -813,7 +817,7 @@ func renderDuplicatas(pdf *Doc, d *DadosDANFE, y float64) float64 {
 			pdf.CellFormat(w3-1, 3, "VALOR", "", 0, "L", false, 0, "")
 
 			// Valores (6pt, preto)
-			pdf.SetFont("Arial", "B", 6)
+			pdf.SetFont("Times", "B", 6)
 			pdf.SetTextColor(0, 0, 0)
 			pdf.SetXY(x+0.5, y+4)
 			pdf.CellFormat(w3-1, 5, dup.Num, "", 0, "L", false, 0, "")
@@ -835,7 +839,7 @@ func renderDuplicatas(pdf *Doc, d *DadosDANFE, y float64) float64 {
 func renderPagamento(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	lw := larguraUtil
 
-	pdf.SetFont("Arial", "B", 7)
+	pdf.SetFont("Times", "B", 8)
 	pdf.SetFillColor(230, 230, 230)
 	pdf.SetXY(margem, y)
 	pdf.CellFormat(lw, 4, "DADOS DO PAGAMENTO", "1", 2, "C", true, 0, "")
@@ -874,7 +878,7 @@ func renderDadosAdicionais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 		y = yMinimo
 	}
 
-	pdf.SetFont("Arial", "B", 7)
+	pdf.SetFont("Times", "B", 8)
 	pdf.SetFillColor(230, 230, 230)
 	pdf.SetXY(margem, y)
 	pdf.CellFormat(lw, 4, "DADOS ADICIONAIS", "1", 2, "C", true, 0, "")
@@ -883,7 +887,7 @@ func renderDadosAdicionais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	wInteresse := lw * 0.65
 	wFisco := lw - wInteresse
 
-	pdf.SetFont("Arial", "", 5)
+	pdf.SetFont("Times", "", 5)
 	pdf.SetTextColor(80, 80, 80)
 	pdf.SetXY(margem+1, y+0.5)
 	pdf.CellFormat(wInteresse-2, 3, "INFORMAÇÕES COMPLEMENTARES DE INTERESSE DO CONTRIBUINTE", "", 0, "L", false, 0, "")
@@ -894,7 +898,7 @@ func renderDadosAdicionais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	pdf.Rect(margem, y, wInteresse, altBloco, "D")
 	pdf.Rect(margem+wInteresse, y, wFisco, altBloco, "D")
 
-	pdf.SetFont("Arial", "", 6)
+	pdf.SetFont("Times", "", 6)
 	pdf.SetTextColor(0, 0, 0)
 	pdf.SetXY(margem+1, y+4)
 	pdf.MultiCell(wInteresse-2, 3.5, d.InfCpl, "", "L", false)
@@ -910,7 +914,7 @@ func renderDadosAdicionais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 // ── Rodapé ────────────────────────────────────────────────────────────────────
 
 func renderRodape(pdf *Doc, y float64) {
-	pdf.SetFont("Arial", "", 5)
+	pdf.SetFont("Times", "", 5)
 	pdf.SetTextColor(120, 120, 120)
 	pdf.SetXY(margem, y+2)
 	pdf.CellFormat(larguraUtil, 3, "Impresso em "+time.Now().Format("02/01/2006")+" as "+time.Now().Format("15:04:05"), "", 0, "L", false, 0, "")
@@ -921,7 +925,7 @@ func renderRodape(pdf *Doc, y float64) {
 // a página — mesmo padrão visual usado por DANFEs de mercado pra distinguir
 // nota cancelada de nota válida à primeira vista.
 func renderMarcaCancelada(pdf *Doc) {
-	pdf.SetFont("Arial", "B", 60)
+	pdf.SetFont("Times", "B", 60)
 	pdf.SetTextColor(200, 0, 0)
 	pdf.SetAlpha(0.35, "Normal")
 
@@ -945,14 +949,14 @@ func renderContingenciaEPEC(pdf *Doc, e *InfoEPEC, y float64) float64 {
 	pdf.SetLineWidth(0.3)
 	pdf.Rect(margem, y, larguraUtil, altura, "D")
 
-	pdf.SetFont("Arial", "B", 8)
+	pdf.SetFont("Times", "B", 8)
 	pdf.SetTextColor(200, 0, 0)
 	pdf.SetXY(margem+1, y+1)
 	pdf.MultiCell(larguraUtil-2, 3.2,
 		"DANFE IMPRESSO EM CONTINGENCIA - EPEC REGULARMENTE RECEBIDA PELA RECEITA FEDERAL DO BRASIL",
 		"", "C", false)
 
-	pdf.SetFont("Arial", "", 7)
+	pdf.SetFont("Times", "", 7)
 	pdf.SetXY(margem+1, y+8)
 	pdf.MultiCell(larguraUtil-2, 3,
 		fmt.Sprintf("Protocolo EPEC: %s   Motivo: %s   Entrada em contingencia: %s",
