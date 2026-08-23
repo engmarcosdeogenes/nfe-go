@@ -127,30 +127,36 @@ func renderizar(d *DadosDANFE, cancelada bool, epec *InfoEPEC, logo *Logo) ([]by
 	// ── Bloco 1b: Natureza da operação + protocolo, IE/IM/IEST/CNPJ ──────────
 	y = renderNatureza(pdf, d, y)
 
+	// gapSecao é o respiro entre um bloco titulado e o próximo -- sem isso os
+	// blocos ficavam com a borda de baixo de um colada na borda de cima do
+	// título seguinte, sem separação visual nenhuma (achado real comparando
+	// com o modelo de referência).
+	const gapSecao = 2.0
+
 	// ── Bloco 3: Destinatário ─────────────────────────────────────────────────
-	y = renderDestinatario(pdf, d, y)
+	y = renderDestinatario(pdf, d, y) + gapSecao
 
 	// ── Bloco 4: Itens ────────────────────────────────────────────────────────
-	y = renderItens(pdf, d, y)
+	y = renderItens(pdf, d, y) + gapSecao
 
 	// ── Bloco 5: Cálculo do imposto ───────────────────────────────────────────
-	y = renderTotais(pdf, d, y)
+	y = renderTotais(pdf, d, y) + gapSecao
 
 	// ── Bloco 6: Transporte ───────────────────────────────────────────────────
 	y = renderTransporte(pdf, d, y)
 
 	// ── Bloco 7: Duplicatas (cobrança parcelada) ──────────────────────────────
 	if len(d.Duplicatas) > 0 {
-		y = renderDuplicatas(pdf, d, y)
+		y = renderDuplicatas(pdf, d, y+gapSecao)
 	}
 
 	// ── Bloco 8: Dados de pagamento ───────────────────────────────────────────
 	if len(d.Pagamentos) > 0 {
-		y = renderPagamento(pdf, d, y)
+		y = renderPagamento(pdf, d, y+gapSecao)
 	}
 
 	// ── Bloco 9: Dados adicionais ─────────────────────────────────────────────
-	y = renderDadosAdicionais(pdf, d, y)
+	y = renderDadosAdicionais(pdf, d, y+gapSecao)
 
 	if epec != nil {
 		y = renderContingenciaEPEC(pdf, epec, y)
