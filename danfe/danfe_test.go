@@ -203,6 +203,27 @@ func TestGerarDANFE_SalvaArquivo(t *testing.T) {
 	t.Logf("PDF salvo em %s (%d bytes)", path, len(pdfBytes))
 }
 
+func TestGerarDANFE_CanceladaSalvaArquivo(t *testing.T) {
+	if os.Getenv("DANFE_SALVAR") == "" {
+		t.Skip("set DANFE_SALVAR=1 para salvar o PDF em disco")
+	}
+
+	nfeXML := nfeAssinadaParaTeste(t)
+	pdfBytes, err := danfe.Gerar(nfeXML, true)
+	if err != nil {
+		t.Fatalf("Gerar: %v", err)
+	}
+
+	path := "testdata/danfe_teste_cancelada.pdf"
+	if err := os.MkdirAll("testdata", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, pdfBytes, 0644); err != nil {
+		t.Fatalf("escrever PDF: %v", err)
+	}
+	t.Logf("PDF salvo em %s (%d bytes)", path, len(pdfBytes))
+}
+
 func TestGerarComTransportadora(t *testing.T) {
 	const xmlComTransp = `<?xml version="1.0" encoding="UTF-8"?>
 <NFe xmlns="http://www.portalfiscal.inf.br/nfe">
