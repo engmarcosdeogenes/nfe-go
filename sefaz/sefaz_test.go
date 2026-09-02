@@ -2,6 +2,7 @@ package sefaz_test
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -225,6 +226,98 @@ func TestAutorizarContingencia_SemDhCont_Erro(t *testing.T) {
 		t.Errorf("mensagem de erro inesperada: %v", err)
 	}
 	t.Logf("Erro esperado: %v", err)
+}
+
+func entradaContingenciaNFCe() builder.EntradaNFe {
+	return builder.EntradaNFe{
+		Serie: "1", NNF: "42",
+		DhEmi:    time.Date(2026, 6, 26, 14, 30, 0, 0, time.FixedZone("BRT", -3*3600)),
+		NatOp:    "VENDA A CONSUMIDOR", TpAmb: "2", FinNFe: "1",
+		IndFinal: "1", IndPres: "1",
+		Mod:             "65",
+		CSC:             "CE154B7B6FB48B77",
+		CSCId:           "000001",
+		UrlConsultaNFCe: "https://www.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe.aspx",
+		DhCont:          "2026-06-26T14:30:00-03:00",
+		XJust:           "Queda de internet no estabelecimento durante o expediente",
+		Emitente: builder.EntradaEmitente{
+			CNPJ: "11222333000181", Nome: "LOJA TESTE LTDA", IE: "123456789", CRT: "1",
+			End: builder.EntradaEndereco{
+				Logradouro: "Rua do Comercio", Numero: "10", Bairro: "Centro",
+				CodigoMun: "5208707", Municipio: "Goiania", UF: "GO",
+				CEP: "74000000", Pais: "1058", NomePais: "Brasil",
+			},
+		},
+		Itens: []builder.EntradaItem{{
+			CProd: "P001", CEAN: "SEM GTIN", Nome: "PRODUTO VENDA BALCAO",
+			NCM: "73089090", CFOP: "5102", Unidade: "UN",
+			Quantidade: 2, VUnitario: 25.00,
+			ICMS: builder.EntradaICMS{CSOSN: "400"},
+		}},
+		Frete:     builder.EntradaFrete{Modalidade: "9"},
+		Pagamento: []builder.EntradaPagamento{{Forma: "01", Valor: 50.00}},
+	}
+}
+
+func TestAutorizarContingenciaNFCe_Sucesso(t *testing.T) {
+	assinado, err := sefaz.AutorizarContingenciaNFCe(entradaContingenciaNFCe(), certTeste(t))
+	if err != nil {
+		t.Fatalf("AutorizarContingenciaNFCe: %v", err)
+	}
+	xmlStr := string(assinado)
+
+	if !strings.Contains(xmlStr, "<tpEmis>9</tpEmis>") {
+		t.Error("XML não contém tpEmis=9")
+	}
+	// infNFeSupl tem que vir DEPOIS de </infNFe> e ANTES de <Signature>
+	iInf := strings.Index(xmlStr, "</infNFe>")
+	iSupl := strings.Index(xmlStr, "<infNFeSupl>")
+	iSig := strings.Index(xmlStr, "<Signature ")
+	if iSupl < 0 {
+		t.Fatal("XML não contém <infNFeSupl>")
+	}
+	if !(iInf < iSupl && iSupl < iSig) {
+		t.Errorf("ordem errada: </infNFe>@%d, <infNFeSupl>@%d, <Signature>@%d", iInf, iSupl, iSig)
+	}
+	// o QR de contingência tem 8 campos e embute o digest da assinatura
+	qr := extrairEntre(xmlStr, "<qrCode>", "</qrCode>")
+	p := strings.Index(qr, "?p=")
+	if p < 0 {
+		t.Fatalf("qrCode sem ?p=: %s", qr)
+	}
+	if n := len(strings.Split(qr[p+3:], "|")); n != 8 {
+		t.Errorf("QR de contingência devia ter 8 campos, tem %d: %s", n, qr)
+	}
+	// digVal (campo 6) tem que ser o hex do DigestValue real da assinatura
+	digB64 := extrairEntre(xmlStr, "<DigestValue>", "</DigestValue>")
+	raw, _ := base64.StdEncoding.DecodeString(digB64)
+	digHex := strings.ToUpper(fmt.Sprintf("%x", raw))
+	if !strings.Contains(qr, "|"+digHex+"|") {
+		t.Errorf("QR não embute o DigestValue da assinatura (%s)", digHex)
+	}
+	t.Logf("AutorizarContingenciaNFCe OK — %d bytes, qr=%s", len(assinado), qr)
+}
+
+func TestAutorizarContingenciaNFCe_ModErrado_Erro(t *testing.T) {
+	e := entradaContingenciaNFCe()
+	e.Mod = "55"
+	_, err := sefaz.AutorizarContingenciaNFCe(e, certTeste(t))
+	if err == nil || !strings.Contains(err.Error(), "mod=65") {
+		t.Fatalf("esperava erro de mod=65, veio: %v", err)
+	}
+}
+
+func extrairEntre(s, ini, fim string) string {
+	i := strings.Index(s, ini)
+	if i < 0 {
+		return ""
+	}
+	i += len(ini)
+	j := strings.Index(s[i:], fim)
+	if j < 0 {
+		return ""
+	}
+	return s[i : i+j]
 }
 
 func TestRetornoDistribuicao_TemMais(t *testing.T) {

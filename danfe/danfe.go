@@ -1088,6 +1088,18 @@ func renderizarCupom(d *DadosDANFE) ([]byte, error) {
 		y += 7
 	}
 
+	// Contingência offline NFC-e (tpEmis=9) — frase obrigatória no DANFE
+	// enquanto a nota não foi transmitida e autorizada.
+	if d.TpEmis == "9" {
+		pdf.SetFont("Arial", "B", 8)
+		pdf.SetXY(cupomMarg, y)
+		pdf.MultiCell(cupomLW, 3.5, "EMITIDA EM CONTINGÊNCIA", "", "C", false)
+		pdf.SetX(cupomMarg)
+		pdf.SetFont("Arial", "", 6.5)
+		pdf.MultiCell(cupomLW, 3, "Pendente de autorização pela SEFAZ", "", "C", false)
+		y = pdf.GetY() + 1
+	}
+
 	y = cupomCabecalho(pdf, d, y)
 	y = cupomSeparador(pdf, y)
 	y = cupomItens(pdf, d, y)

@@ -2,12 +2,18 @@ package builder
 
 import (
 	"crypto/sha1"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"strings"
 	"time"
 )
+
+// qrVersao é a versão do QR Code NFC-e implementada — 2.00 (NT 2015.002 e
+// revisões). A versão 1.00 (campo signAC, incluía cDest/vICMS/dIEDest) está
+// obsoleta desde 2017 e é rejeitada pela SEFAZ.
+const qrVersao = "2"
 
 // ── Input ─────────────────────────────────────────────────────────────────────
 // EntradaNFe é a struct de alto nível que o caller preenche.
@@ -390,46 +396,80 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 		},
 	}
 
-	if mod == ModeloNFCe {
-		nfe.InfNFeSupl = montarQRCode(e, chave, totais, tpAmb)
+	// tpEmis=9 (contingência offline): o QR Code precisa do DigestValue da
+	// assinatura, que só existe depois de assinar — montado por
+	// MontarQRCodeContingenciaNFCe e injetado pós-assinatura.
+	if mod == ModeloNFCe && tpEmis != "9" {
+		nfe.InfNFeSupl = montarQRCode(e, chave, tpAmb)
 	}
 
 	return nfe, nil
 }
 
-// montarQRCode gera o bloco infNFeSupl com QR Code e URL de consulta para NFC-e.
-// signAC = SHA-1(chNFe + nVersao + tpAmb + cDest + dhEmi + vNF + vICMS + dIEDest + cIdToken + CSC).
-func montarQRCode(e EntradaNFe, chave ChaveAcesso, totais ICMSTot, tpAmb string) *InfNFeSupl {
+// qrHashCode calcula o cHashQRCode: SHA-1 da string de parâmetros (já unida
+// por "|", sem o hash) concatenada diretamente com o CSC. Resultado em hex
+// maiúsculo (40 chars). Vale igual pro QR online e pro de contingência.
+func qrHashCode(paramsUnidos, csc string) string {
+	h := sha1.Sum([]byte(paramsUnidos + csc))
+	return strings.ToUpper(hex.EncodeToString(h[:]))
+}
+
+// montarQRCode gera o infNFeSupl com QR Code versão 2.00 (NT 2015.002 e
+// revisões) para NFC-e emitida ONLINE (tpEmis != 9):
+//
+//	URL?p=chNFe|2|tpAmb|cIdToken|cHashQRCode
+//
+// O QR de contingência offline (tpEmis=9) é outro formato — precisa do
+// DigestValue da assinatura, montado só depois de assinar
+// (ver MontarQRCodeContingenciaNFCe).
+func montarQRCode(e EntradaNFe, chave ChaveAcesso, tpAmb string) *InfNFeSupl {
 	chNFe := chave.String()
-	nVersao := "100"
-	cDest := e.Dest.CPF // CPF do consumidor ou vazio
+	cIdToken := semZerosEsquerda(e.CSCId)
+	params := strings.Join([]string{chNFe, qrVersao, tpAmb, cIdToken}, "|")
+	qrCode := e.UrlConsultaNFCe + "?p=" + params + "|" + qrHashCode(params, e.CSC)
+	return &InfNFeSupl{QrCode: qrCode, UrlChave: e.UrlConsultaNFCe + "?chNFe=" + chNFe}
+}
 
-	dhEmi := e.DhEmi.Format("20060102150405")
-	vNF := totais.VNF
-	vICMS := totais.VICMS
-
-	dIEDest := ""
-	switch e.Dest.IndIEDest {
-	case "1":
-		dIEDest = e.Dest.IE
-	case "2":
-		dIEDest = "ISENTO"
+// MontarQRCodeContingenciaNFCe monta o infNFeSupl da NFC-e em contingência
+// offline (tpEmis=9). Precisa do DigestValue da assinatura (base64, como sai
+// no <DigestValue> do XML assinado) e do valor total da nota (vNF, 2 casas,
+// ponto decimal — o mesmo que sai em <ICMSTot><vNF>):
+//
+//	URL?p=chNFe|2|tpAmb|dd|vNF|digValHex|cIdToken|cHashQRCode
+//
+// dd = dia (2 dígitos) de e.DhEmi; digValHex = hex maiúsculo dos bytes do
+// DigestValue (base64 decodificado).
+func MontarQRCodeContingenciaNFCe(e EntradaNFe, chave ChaveAcesso, vNF, digestValueB64 string) (*InfNFeSupl, error) {
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(digestValueB64))
+	if err != nil {
+		return nil, fmt.Errorf("builder: DigestValue base64 inválido: %w", err)
 	}
+	tpAmb := e.TpAmb
+	if tpAmb == "" {
+		tpAmb = "2"
+	}
+	chNFe := chave.String()
+	params := strings.Join([]string{
+		chNFe, qrVersao, tpAmb,
+		e.DhEmi.Format("02"),
+		vNF,
+		strings.ToUpper(hex.EncodeToString(raw)),
+		semZerosEsquerda(e.CSCId),
+	}, "|")
+	qrCode := e.UrlConsultaNFCe + "?p=" + params + "|" + qrHashCode(params, e.CSC)
+	return &InfNFeSupl{QrCode: qrCode, UrlChave: e.UrlConsultaNFCe + "?chNFe=" + chNFe}, nil
+}
 
-	cIdToken := e.CSCId
-
-	// signAC: SHA-1 de todos os campos + CSC, resultado em hex maiúsculo (40 chars)
-	toSign := chNFe + nVersao + tpAmb + cDest + dhEmi + vNF + vICMS + dIEDest + cIdToken + e.CSC
-	h := sha1.New()
-	h.Write([]byte(toSign))
-	signAC := strings.ToUpper(hex.EncodeToString(h.Sum(nil)))
-
-	// QR Code: formato pipe-delimited p= (padrão NT 2013.005 NFC-e)
-	partes := strings.Join([]string{chNFe, nVersao, tpAmb, cDest, dhEmi, vNF, vICMS, dIEDest, cIdToken, signAC}, "|")
-	qrCode := e.UrlConsultaNFCe + "?p=" + partes
-	urlChave := e.UrlConsultaNFCe + "?chNFe=" + chNFe
-
-	return &InfNFeSupl{QrCode: qrCode, UrlChave: urlChave}
+// XMLFragment serializa o infNFeSupl com o nome de tag do schema (minúsculo).
+// Usado pra injetar o bloco depois da assinatura (contingência) — encoding/xml
+// sozinho usaria o nome do tipo Go ("InfNFeSupl").
+func (s *InfNFeSupl) XMLFragment() string {
+	esc := func(v string) string {
+		var b strings.Builder
+		_ = xml.EscapeText(&b, []byte(v))
+		return b.String()
+	}
+	return "<infNFeSupl><qrCode>" + esc(s.QrCode) + "</qrCode><urlChave>" + esc(s.UrlChave) + "</urlChave></infNFeSupl>"
 }
 
 func montarEmitente(e EntradaEmitente) Emitente {
@@ -900,13 +940,16 @@ func validarEntrada(e EntradaNFe) error {
 	if (e.FinNFe == "2" || e.FinNFe == "4") && e.ChaveNFeRef == "" {
 		return fmt.Errorf("finNFe=%s exige ChaveNFeRef preenchida (44 dígitos da NF-e original)", e.FinNFe)
 	}
-	if e.TpEmis == "4" || e.TpEmis == "5" {
+	if e.TpEmis == "4" || e.TpEmis == "5" || e.TpEmis == "9" {
 		if e.DhCont == "" {
 			return fmt.Errorf("TpEmis=%s exige DhCont preenchida (data/hora entrada em contingência)", e.TpEmis)
 		}
 		if len(e.XJust) < 15 {
 			return fmt.Errorf("TpEmis=%s exige XJust com pelo menos 15 caracteres (atual: %d)", e.TpEmis, len(e.XJust))
 		}
+	}
+	if e.TpEmis == "9" && e.Mod != ModeloNFCe {
+		return fmt.Errorf("TpEmis=9 (contingência offline) só vale para NFC-e (mod=65)")
 	}
 	return nil
 }

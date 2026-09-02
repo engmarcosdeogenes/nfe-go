@@ -17,6 +17,7 @@ type DadosDANFE struct {
 	TipoNF      string // "0"=entrada "1"=saída
 	NatOp       string
 	TpAmb       string // "1"=produção "2"=homologação
+	TpEmis      string // "1"=normal "4"=EPEC "5"=FS-DA "9"=contingência offline NFC-e
 	FinNFe      string
 
 	// Protocolo (preenchido se vier nfeProc)
@@ -268,6 +269,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 				TpNF    string `xml:"tpNF"`
 				NatOp   string `xml:"natOp"`
 				TpAmb   string `xml:"tpAmb"`
+				TpEmis  string `xml:"tpEmis"`
 				FinNFe  string `xml:"finNFe"`
 				Mod     string `xml:"mod"`
 			} `xml:"ide"`
@@ -355,6 +357,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 		TipoNF:          inf.Ide.TpNF,
 		NatOp:           inf.Ide.NatOp,
 		TpAmb:           inf.Ide.TpAmb,
+		TpEmis:          inf.Ide.TpEmis,
 		FinNFe:          inf.Ide.FinNFe,
 		Mod:             inf.Ide.Mod,
 		QrCode:          nfe.InfNFeSupl.QrCode,

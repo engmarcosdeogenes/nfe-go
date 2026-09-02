@@ -1,7 +1,9 @@
 package builder_test
 
 import (
+	"crypto/sha1"
 	"encoding/xml"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1313,8 +1315,94 @@ func TestNFCe_QRCode_Gerado(t *testing.T) {
 			t.Errorf("XML não contém %s", tag)
 		}
 	}
-	t.Logf("NFC-e QR Code OK\n  qrCode=%s\n  urlChave=%s",
-		nfe.InfNFeSupl.QrCode, nfe.InfNFeSupl.UrlChave)
+
+	// QR Code versão 2.00 online: p=chNFe|2|tpAmb|cIdToken|cHashQRCode
+	i := strings.Index(nfe.InfNFeSupl.QrCode, "?p=")
+	if i < 0 {
+		t.Fatalf("qrCode sem ?p=: %s", nfe.InfNFeSupl.QrCode)
+	}
+	partes := strings.Split(nfe.InfNFeSupl.QrCode[i+3:], "|")
+	if len(partes) != 5 {
+		t.Fatalf("QR online devia ter 5 campos, tem %d: %v", len(partes), partes)
+	}
+	if partes[0] != chave.String() {
+		t.Errorf("campo 1 (chNFe) = %q, esperava %q", partes[0], chave.String())
+	}
+	if partes[1] != "2" {
+		t.Errorf("campo 2 (nVersao) = %q, esperava \"2\"", partes[1])
+	}
+	if partes[2] != "2" {
+		t.Errorf("campo 3 (tpAmb) = %q, esperava \"2\"", partes[2])
+	}
+	if partes[3] != "1" {
+		t.Errorf("campo 4 (cIdToken) = %q, esperava \"1\" (000001 sem zeros)", partes[3])
+	}
+	base := strings.Join(partes[:4], "|")
+	esperado := strings.ToUpper(fmt.Sprintf("%x", sha1.Sum([]byte(base+e.CSC))))
+	if partes[4] != esperado {
+		t.Errorf("cHashQRCode = %q, esperava %q", partes[4], esperado)
+	}
+	if strings.Contains(nfe.InfNFeSupl.QrCode, "signAC") || strings.Contains(nfe.InfNFeSupl.QrCode, "|100|") {
+		t.Errorf("qrCode ainda no formato versão 1.00: %s", nfe.InfNFeSupl.QrCode)
+	}
+}
+
+func TestNFCe_TpEmis9_BuildPulaInfNFeSupl(t *testing.T) {
+	e := entradaNFCe()
+	e.TpEmis = "9"
+	e.DhCont = e.DhEmi.Format("2006-01-02T15:04:05-07:00")
+	e.XJust = "queda de energia na loja durante o expediente"
+
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build tpEmis=9: %v", err)
+	}
+	if strings.Contains(string(xmlBytes), "<infNFeSupl>") {
+		t.Error("Build com tpEmis=9 não devia montar infNFeSupl (falta o DigestValue)")
+	}
+	if !strings.Contains(string(xmlBytes), "<tpEmis>9</tpEmis>") {
+		t.Error("XML sem <tpEmis>9</tpEmis>")
+	}
+}
+
+func TestMontarQRCodeContingenciaNFCe(t *testing.T) {
+	e := entradaNFCe()
+	_, chave, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	// DigestValue de exemplo: 20 bytes -> base64
+	digB64 := "K2pTHg8kR8mGZ0lQ2n3sJ4tU5vw=" // 28 chars, decodifica pra 20 bytes
+
+	supl, err := builder.MontarQRCodeContingenciaNFCe(e, chave, "50.00", digB64)
+	if err != nil {
+		t.Fatalf("MontarQRCodeContingenciaNFCe: %v", err)
+	}
+	i := strings.Index(supl.QrCode, "?p=")
+	partes := strings.Split(supl.QrCode[i+3:], "|")
+	if len(partes) != 8 {
+		t.Fatalf("QR de contingência devia ter 8 campos, tem %d: %v", len(partes), partes)
+	}
+	if partes[1] != "2" || partes[2] != "2" {
+		t.Errorf("nVersao/tpAmb errados: %v", partes[:3])
+	}
+	if partes[3] != "26" { // dia de 2026-06-26
+		t.Errorf("campo dia = %q, esperava \"26\"", partes[3])
+	}
+	if partes[4] != "50.00" {
+		t.Errorf("campo vNF = %q, esperava \"50.00\"", partes[4])
+	}
+	if len(partes[5]) != 40 {
+		t.Errorf("digVal hex devia ter 40 chars, tem %d: %q", len(partes[5]), partes[5])
+	}
+	if partes[6] != "1" {
+		t.Errorf("cIdToken = %q, esperava \"1\"", partes[6])
+	}
+	base := strings.Join(partes[:7], "|")
+	esperado := strings.ToUpper(fmt.Sprintf("%x", sha1.Sum([]byte(base+e.CSC))))
+	if partes[7] != esperado {
+		t.Errorf("cHashQRCode = %q, esperava %q", partes[7], esperado)
+	}
 }
 
 func TestNFCe_Builder_CNPJDestRejeitado(t *testing.T) {
