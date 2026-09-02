@@ -39,44 +39,48 @@ func AutorizarContingencia(e builder.EntradaNFe, c *cert.Certificado) ([]byte, e
 // pode ser montado depois de assinar.
 //
 // Guardar e retransmitir via Cliente.Autorizar quando a SEFAZ normalizar,
-// com a MESMA chave e o MESMO XML (a SEFAZ trata reenvio de chave já
-// autorizada como cStat=539). A entrada precisa de Mod="65", CSC/CSCId,
-// UrlConsultaNFCe, DhCont e XJust (≥15 chars).
-func AutorizarContingenciaNFCe(e builder.EntradaNFe, c *cert.Certificado) ([]byte, error) {
+// com a MESMA chave (2º retorno) e o MESMO XML (a SEFAZ trata reenvio de
+// chave já autorizada como cStat=539). A entrada precisa de Mod="65",
+// CSC/CSCId, UrlConsultaNFCe, DhCont e XJust (≥15 chars).
+func AutorizarContingenciaNFCe(e builder.EntradaNFe, c *cert.Certificado) ([]byte, string, error) {
 	e.TpEmis = "9"
 	if e.Mod == "" {
 		e.Mod = builder.ModeloNFCe
 	}
 	if e.Mod != builder.ModeloNFCe {
-		return nil, fmt.Errorf("sefaz: AutorizarContingenciaNFCe exige mod=65 (NFC-e), recebido %q", e.Mod)
+		return nil, "", fmt.Errorf("sefaz: AutorizarContingenciaNFCe exige mod=65 (NFC-e), recebido %q", e.Mod)
 	}
 
 	// Build pula o infNFeSupl quando tpEmis=9 (não dá pra montar o QR sem o
 	// DigestValue, que ainda não existe).
 	xmlBytes, chave, err := builder.Build(e)
 	if err != nil {
-		return nil, fmt.Errorf("sefaz: contingência NFC-e build: %w", err)
+		return nil, "", fmt.Errorf("sefaz: contingência NFC-e build: %w", err)
 	}
 
 	assinado, err := sign.AssinarNFe(xmlBytes, c)
 	if err != nil {
-		return nil, fmt.Errorf("sefaz: contingência NFC-e assinar: %w", err)
+		return nil, "", fmt.Errorf("sefaz: contingência NFC-e assinar: %w", err)
 	}
 
 	digestB64 := extrairTagXML(assinado, "DigestValue")
 	if digestB64 == "" {
-		return nil, fmt.Errorf("sefaz: DigestValue não encontrado no XML assinado")
+		return nil, "", fmt.Errorf("sefaz: DigestValue não encontrado no XML assinado")
 	}
 	vNF := extrairTagXML(assinado, "vNF")
 	if vNF == "" {
-		return nil, fmt.Errorf("sefaz: vNF não encontrado no XML assinado")
+		return nil, "", fmt.Errorf("sefaz: vNF não encontrado no XML assinado")
 	}
 
 	supl, err := builder.MontarQRCodeContingenciaNFCe(e, chave, vNF, digestB64)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return injetarInfNFeSupl(assinado, supl.XMLFragment())
+	final, err := injetarInfNFeSupl(assinado, supl.XMLFragment())
+	if err != nil {
+		return nil, "", err
+	}
+	return final, chave.String(), nil
 }
 
 // injetarInfNFeSupl insere o fragmento <infNFeSupl> logo antes de <Signature>

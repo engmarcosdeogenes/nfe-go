@@ -260,11 +260,15 @@ func entradaContingenciaNFCe() builder.EntradaNFe {
 }
 
 func TestAutorizarContingenciaNFCe_Sucesso(t *testing.T) {
-	assinado, err := sefaz.AutorizarContingenciaNFCe(entradaContingenciaNFCe(), certTeste(t))
+	assinado, chave, err := sefaz.AutorizarContingenciaNFCe(entradaContingenciaNFCe(), certTeste(t))
 	if err != nil {
 		t.Fatalf("AutorizarContingenciaNFCe: %v", err)
 	}
 	xmlStr := string(assinado)
+
+	if len(chave) != 44 || !strings.Contains(xmlStr, chave) {
+		t.Errorf("chave retornada inválida ou ausente do XML: %q", chave)
+	}
 
 	if !strings.Contains(xmlStr, "<tpEmis>9</tpEmis>") {
 		t.Error("XML não contém tpEmis=9")
@@ -301,7 +305,7 @@ func TestAutorizarContingenciaNFCe_Sucesso(t *testing.T) {
 func TestAutorizarContingenciaNFCe_ModErrado_Erro(t *testing.T) {
 	e := entradaContingenciaNFCe()
 	e.Mod = "55"
-	_, err := sefaz.AutorizarContingenciaNFCe(e, certTeste(t))
+	_, _, err := sefaz.AutorizarContingenciaNFCe(e, certTeste(t))
 	if err == nil || !strings.Contains(err.Error(), "mod=65") {
 		t.Fatalf("esperava erro de mod=65, veio: %v", err)
 	}
