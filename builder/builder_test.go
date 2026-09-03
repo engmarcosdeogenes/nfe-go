@@ -120,8 +120,13 @@ func TestBuildGeraXMLValido(t *testing.T) {
 	if len(nfe.InfNFe.Det) != 2 {
 		t.Errorf("esperava 2 itens, got %d", len(nfe.InfNFe.Det))
 	}
-	if nfe.InfNFe.Det[0].Prod.XProd != "CHAPA DE ACO INOX 304 2MM" {
-		t.Errorf("produto 1: %q", nfe.InfNFe.Det[0].Prod.XProd)
+	// tpAmb=2 (homologação): descrição do 1º item é substituída pelo texto
+	// obrigatório; os demais itens mantêm a descrição real.
+	if nfe.InfNFe.Det[0].Prod.XProd != builder.XProdPrimeiroItemHomologacao {
+		t.Errorf("produto 1 em homologação: %q", nfe.InfNFe.Det[0].Prod.XProd)
+	}
+	if nfe.InfNFe.Det[1].Prod.XProd != "PERFIL ESTRUTURAL L 2X2" {
+		t.Errorf("produto 2 não deveria ser substituído: %q", nfe.InfNFe.Det[1].Prod.XProd)
 	}
 	if nfe.InfNFe.Emit.CRT != "1" {
 		t.Errorf("CRT: %q", nfe.InfNFe.Emit.CRT)
@@ -715,7 +720,7 @@ func TestCRT3_CST10_ST(t *testing.T) {
 
 func TestCRT3_CST60_STRetido(t *testing.T) {
 	// ST já retido na operação anterior.
-	// Caller informa: vBCSTRet=700 | pSTRet=18% | vICMSSTRet=126
+	// Caller informa: vBCSTRet=700 | pST=18% | vICMSSTRet=126
 	e := entradaCRT3()
 	e.Itens = []builder.EntradaItem{{
 		CProd: "P060", CEAN: "SEM GTIN", Nome: "PRODUTO ST RETIDO CST60",
@@ -724,7 +729,7 @@ func TestCRT3_CST60_STRetido(t *testing.T) {
 		ICMS: builder.EntradaICMS{
 			CST:        "60",
 			VBCSTRet:   700.00,
-			PSTRet:     18.0,
+			PST:        18.0,
 			VICMSSTRet: 126.00,
 		},
 	}}
@@ -753,22 +758,78 @@ func TestCRT3_CST60_STRetido(t *testing.T) {
 	if i60.VBCSTRet != "700.00" {
 		t.Errorf("vBCSTRet: %q, esperava \"700.00\"", i60.VBCSTRet)
 	}
-	if i60.PSTRet != "18.00" {
-		t.Errorf("pSTRet: %q, esperava \"18.00\"", i60.PSTRet)
+	if i60.PST != "18.00" {
+		t.Errorf("pST: %q, esperava \"18.00\"", i60.PST)
 	}
 	if i60.VICMSSTRet != "126.00" {
 		t.Errorf("vICMSSTRet: %q, esperava \"126.00\"", i60.VICMSSTRet)
 	}
 
-	// XML deve conter as tags de ST retido
+	// XML deve conter as tags de ST retido -- <pST>, não <pSTRet> (schema 4.00)
 	xmlStr := string(xmlBytes)
-	for _, tag := range []string{"<vBCSTRet>", "<vICMSSTRet>"} {
+	for _, tag := range []string{"<vBCSTRet>", "<pST>", "<vICMSSTRet>"} {
 		if !strings.Contains(xmlStr, tag) {
 			t.Errorf("XML não contém tag %s", tag)
 		}
 	}
-	t.Logf("ICMS60 OK — vBCSTRet=%s pSTRet=%s vICMSSTRet=%s",
-		i60.VBCSTRet, i60.PSTRet, i60.VICMSSTRet)
+	if strings.Contains(xmlStr, "<pSTRet>") {
+		t.Error("XML contém <pSTRet> — schema 4.00 é <pST>")
+	}
+	t.Logf("ICMS60 OK — vBCSTRet=%s pST=%s vICMSSTRet=%s",
+		i60.VBCSTRet, i60.PST, i60.VICMSSTRet)
+}
+
+func TestCRT1_CSOSN500_STRetido(t *testing.T) {
+	// Simples Nacional revendendo mercadoria com ICMS-ST retido pelo
+	// fabricante (ex: distribuidora de bebidas). CSOSN 500 -> ICMSSN500,
+	// com os valores da retenção vindos da nota de entrada.
+	e := entradaNFCe()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P500", CEAN: "SEM GTIN", Nome: "REFRIGERANTE 2L ST RETIDO",
+		NCM: "22021000", CEST: "0301000", CFOP: "5405", Unidade: "UN",
+		Quantidade: 3, VUnitario: 10.00,
+		ICMS: builder.EntradaICMS{
+			CSOSN:      "500",
+			VBCSTRet:   9.00,
+			PST:        19.0,
+			VICMSSTRet: 1.71,
+		},
+	}}
+
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build CRT1 CSOSN500: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	icms := nfe.InfNFe.Det[0].Imposto.ICMS
+	if icms.ICMSSN500 == nil {
+		t.Fatal("esperava ICMSSN500 para CSOSN=500")
+	}
+	if icms.ICMSSN102 != nil {
+		t.Error("não deveria ter ICMSSN102 quando CSOSN=500")
+	}
+	sn := icms.ICMSSN500
+	if sn.CSOSN != "500" || sn.Orig != "0" {
+		t.Errorf("orig/CSOSN: %q/%q", sn.Orig, sn.CSOSN)
+	}
+	if sn.VBCSTRet != "9.00" || sn.PST != "19.00" || sn.VICMSSTRet != "1.71" {
+		t.Errorf("valores ST: vBCSTRet=%q pST=%q vICMSSTRet=%q", sn.VBCSTRet, sn.PST, sn.VICMSSTRet)
+	}
+
+	xmlStr := string(xmlBytes)
+	for _, tag := range []string{"<ICMSSN500>", "<vBCSTRet>", "<pST>", "<vICMSSTRet>"} {
+		if !strings.Contains(xmlStr, tag) {
+			t.Errorf("XML não contém tag %s", tag)
+		}
+	}
+	if strings.Contains(xmlStr, "<pSTRet>") {
+		t.Error("XML contém <pSTRet> — schema 4.00 é <pST>")
+	}
 }
 
 func TestCRT3_CST_Desconhecido_FallbackICMS40(t *testing.T) {
@@ -1304,9 +1365,13 @@ func TestNFCe_QRCode_Gerado(t *testing.T) {
 	if nfe.InfNFeSupl.QrCode == "" {
 		t.Error("qrCode vazio")
 	}
-	if !strings.Contains(nfe.InfNFeSupl.UrlChave, chave.String()) {
-		t.Errorf("urlChave %q não contém a chave de acesso %q",
-			nfe.InfNFeSupl.UrlChave, chave.String())
+	// urlChave é só a URL base da consulta (schema limita a 85 chars) — não
+	// leva "?chNFe=" nem a chave embutida.
+	if nfe.InfNFeSupl.UrlChave != e.UrlConsultaNFCe {
+		t.Errorf("urlChave = %q, esperava a URL base %q", nfe.InfNFeSupl.UrlChave, e.UrlConsultaNFCe)
+	}
+	if len(nfe.InfNFeSupl.UrlChave) > 85 {
+		t.Errorf("urlChave tem %d chars, schema permite no máximo 85", len(nfe.InfNFeSupl.UrlChave))
 	}
 
 	xmlStr := string(xmlBytes)

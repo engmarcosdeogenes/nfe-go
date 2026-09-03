@@ -12,6 +12,12 @@ const (
 	// XNomeDestHomologacao é o texto exigido no xNome do destinatário quando
 	// tpAmb=2. Aplicado automaticamente pelo Build.
 	XNomeDestHomologacao = "NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL"
+
+	// XProdPrimeiroItemHomologacao é o texto exigido na descrição do primeiro
+	// item quando tpAmb=2 (senão cStat=373). Aplicado automaticamente pelo
+	// Build. Note que o texto difere do xNome do destinatário ("NOTA FISCAL"
+	// vs "NF-E").
+	XProdPrimeiroItemHomologacao = "NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL"
 )
 
 // ── Raiz ─────────────────────────────────────────────────────────────────────
@@ -452,7 +458,7 @@ type ICMS60 struct {
 	Orig       string `xml:"orig"`
 	CST        string `xml:"CST"` // 60=cobrado por ST anteriormente
 	VBCSTRet   string `xml:"vBCSTRet"`
-	PSTRet     string `xml:"pSTRet"`
+	PST        string `xml:"pST"` // schema é "pST" (alíquota suportada pelo consumidor final), não "pSTRet"
 	VICMSSTRet string `xml:"vICMSSTRet"`
 }
 
@@ -504,7 +510,7 @@ type ICMSSN500 struct {
 	Orig       string `xml:"orig"`
 	CSOSN      string `xml:"CSOSN"` // 500=ST anteriormente retido
 	VBCSTRet   string `xml:"vBCSTRet"`
-	PSTRet     string `xml:"pSTRet"`
+	PST        string `xml:"pST"` // schema é "pST", não "pSTRet"
 	VICMSSTRet string `xml:"vICMSSTRet"`
 }
 

@@ -178,9 +178,9 @@ type EntradaICMS struct {
 	ModBCST string
 	PMVAST  float64
 	AliqST  float64
-	// ST retido anteriormente (CST 60)
+	// ST retido anteriormente (CST 60 no Regime Normal, CSOSN 500 no Simples)
 	VBCSTRet   float64
-	PSTRet     float64
+	PST        float64 // alíquota suportada pelo consumidor final (schema: pST)
 	VICMSSTRet float64
 	// Desoneração
 	VICMSDeson float64
@@ -427,7 +427,10 @@ func montarQRCode(e EntradaNFe, chave ChaveAcesso, tpAmb string) *InfNFeSupl {
 	cIdToken := semZerosEsquerda(e.CSCId)
 	params := strings.Join([]string{chNFe, qrVersao, tpAmb, cIdToken}, "|")
 	qrCode := e.UrlConsultaNFCe + "?p=" + params + "|" + qrHashCode(params, e.CSC)
-	return &InfNFeSupl{QrCode: qrCode, UrlChave: e.UrlConsultaNFCe + "?chNFe=" + chNFe}
+	// urlChave é só a URL base da consulta por chave (o schema limita a 85
+	// chars — a URL de GO + "?chNFe=" + 44 dígitos estoura). O consumidor
+	// digita a chave nesse site; quem já tem o QR não usa esse campo.
+	return &InfNFeSupl{QrCode: qrCode, UrlChave: e.UrlConsultaNFCe}
 }
 
 // MontarQRCodeContingenciaNFCe monta o infNFeSupl da NFC-e em contingência
@@ -457,7 +460,7 @@ func MontarQRCodeContingenciaNFCe(e EntradaNFe, chave ChaveAcesso, vNF, digestVa
 		semZerosEsquerda(e.CSCId),
 	}, "|")
 	qrCode := e.UrlConsultaNFCe + "?p=" + params + "|" + qrHashCode(params, e.CSC)
-	return &InfNFeSupl{QrCode: qrCode, UrlChave: e.UrlConsultaNFCe + "?chNFe=" + chNFe}, nil
+	return &InfNFeSupl{QrCode: qrCode, UrlChave: e.UrlConsultaNFCe}, nil
 }
 
 // XMLFragment serializa o infNFeSupl com o nome de tag do schema (minúsculo).
@@ -590,12 +593,20 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 			vCBSTotal += totItem.vCBS
 		}
 
+		// Em homologação a descrição do PRIMEIRO item tem que ser exatamente
+		// este texto (regra nacional, MOC) — senão cStat=373. Igual ao
+		// tratamento do xNome do destinatário (ver montarNFe).
+		xProd := item.Nome
+		if i == 0 && e.TpAmb != "1" {
+			xProd = XProdPrimeiroItemHomologacao
+		}
+
 		det := Detalhe{
 			NItem: fmt.Sprintf("%d", i+1),
 			Prod: Produto{
 				CProd:    item.CProd,
 				CEAN:     ceanOuSemGTIN(item.CEAN),
-				XProd:    item.Nome,
+				XProd:    xProd,
 				NCM:      item.NCM,
 				CEST:     item.CEST,
 				CBenef:   item.CBenef,
@@ -723,7 +734,20 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
 		if csosn == "" {
 			csosn = "400" // isento/sem destaque (mais comum no SN)
 		}
-		icms.ICMSSN102 = &ICMSSN102{Orig: "0", CSOSN: csosn}
+		// CSOSN 500: ICMS-ST retido na operação anterior (revenda de mercadoria
+		// já tributada -- bebida, autopeça, etc). Grupo próprio ICMSSN500 com os
+		// valores da retenção, que vêm da nota de entrada do fornecedor. Os
+		// demais CSOSN de Simples (102/103/300/400) não carregam valor.
+		if csosn == "500" {
+			icms.ICMSSN500 = &ICMSSN500{
+				Orig: "0", CSOSN: "500",
+				VBCSTRet:   fmtVal(item.ICMS.VBCSTRet),
+				PST:        fmtVal(item.ICMS.PST),
+				VICMSSTRet: fmtVal(item.ICMS.VICMSSTRet),
+			}
+		} else {
+			icms.ICMSSN102 = &ICMSSN102{Orig: "0", CSOSN: csosn}
+		}
 		imp.ICMS = icms
 		vProd := item.Quantidade * item.VUnitario
 		pis, cofins, vPIS, vCOFINS := montarPISCOFINS(item.PISCofins, vProd, "07")
@@ -774,7 +798,7 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
 			Orig:       "0",
 			CST:        "60",
 			VBCSTRet:   fmtVal(item.ICMS.VBCSTRet),
-			PSTRet:     fmtVal(item.ICMS.PSTRet),
+			PST:        fmtVal(item.ICMS.PST),
 			VICMSSTRet: fmtVal(item.ICMS.VICMSSTRet),
 		}
 	case "20":
