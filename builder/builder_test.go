@@ -543,6 +543,61 @@ func TestPISCofins_OverrideCST(t *testing.T) {
 	}
 }
 
+// CST 49 é o que o Simples Nacional usa em PIS/COFINS. O schema 4.00 só
+// aceita 04-09 em PISNT/COFINSNT: 49 ali dentro faz a SEFAZ recusar o lote
+// com cStat 225 ("Falha no Schema XML") — aconteceu de verdade em
+// homologação GO. Tem de sair em PISOutr/COFINSOutr, com vBC e alíquota
+// zeradas.
+func TestPISCofinsCST49_VaiEmOutrasOperacoes(t *testing.T) {
+	e := entradaCRT3()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P001", CEAN: "SEM GTIN", Nome: "PRODUTO TESTE",
+		NCM: "73089090", CFOP: "5102", Unidade: "UN",
+		Quantidade: 10, VUnitario: 100.00,
+		ICMS:      builder.EntradaICMS{CSOSN: "102"},
+		PISCofins: builder.EntradaPISCofins{CST: "49"},
+	}}
+
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build CST 49: %v", err)
+	}
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+
+	imp := nfe.InfNFe.Det[0].Imposto
+	if imp.PIS.PISNt != nil || imp.COFINS.COFINSNt != nil {
+		t.Fatalf("CST 49 não pode sair em PISNT/COFINSNT: %+v %+v", imp.PIS, imp.COFINS)
+	}
+	if imp.PIS.PISOutr == nil || imp.PIS.PISOutr.CST != "49" {
+		t.Fatalf("esperava PISOutr CST=49, veio %+v", imp.PIS)
+	}
+	if imp.PIS.PISOutr.VBC != "0.00" || imp.PIS.PISOutr.PPIS != "0.00" || imp.PIS.PISOutr.VPIS != "0.00" {
+		t.Errorf("PISOutr sem tributo deve zerar vBC/pPIS/vPIS, veio %+v", imp.PIS.PISOutr)
+	}
+	if imp.COFINS.COFINSOutr == nil || imp.COFINS.COFINSOutr.CST != "49" {
+		t.Fatalf("esperava COFINSOutr CST=49, veio %+v", imp.COFINS)
+	}
+	if imp.COFINS.COFINSOutr.VBC != "0.00" || imp.COFINS.COFINSOutr.VCOFINS != "0.00" {
+		t.Errorf("COFINSOutr sem tributo deve zerar vBC/vCOFINS, veio %+v", imp.COFINS.COFINSOutr)
+	}
+	// CST 99 continua em outras operações, com base e alíquota calculadas.
+	e.Itens[0].PISCofins = builder.EntradaPISCofins{CST: "99", AliqPIS: 0.65, AliqCOFINS: 3.00}
+	xmlBytes, _, err = builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build CST 99: %v", err)
+	}
+	nfe = builder.NFe{}
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("XML inválido: %v", err)
+	}
+	if o := nfe.InfNFe.Det[0].Imposto.PIS.PISOutr; o == nil || o.CST != "99" || o.PPIS != "0.65" || o.VBC == "0.00" {
+		t.Errorf("CST 99 deveria manter base e alíquota: %+v", o)
+	}
+}
+
 func TestCBenef_VaiParaProd(t *testing.T) {
 	e := entradaCRT3()
 	e.Itens = []builder.EntradaItem{{

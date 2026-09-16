@@ -682,10 +682,18 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	return detalhes, tot, ibscbsTot, nil
 }
 
+// cstPISNaoTributado são os únicos CST que o schema 4.00 aceita dentro de
+// PISNT/COFINSNT. Qualquer outro fora de 01/02/03 é "outras operações" e vai
+// em PISOutr/COFINSOutr — CST 49 (o usual do Simples) dentro de PISNT faz a
+// SEFAZ recusar o lote inteiro com cStat 225, "Falha no Schema XML".
+var cstPISNaoTributado = map[string]bool{"04": true, "05": true, "06": true, "07": true, "08": true, "09": true}
+
 // montarPISCOFINS resolve PIS/COFINS do item. CST vazio aplica defaultCST
 // (comportamento de antes desse override existir: "07" isento pro Simples,
-// "01"@0.65/3.00 pro Regime Normal). CSTs 01/02/99 levam vBC+alíquota; os
-// demais (04-09, 49...) são não-tributação, sem base nem valor.
+// "01"@0.65/3.00 pro Regime Normal). CSTs 01/02 levam vBC+alíquota; 04-09 são
+// não-tributação (sem base nem valor); o resto vai em "outras operações",
+// onde vBC e alíquota são obrigatórios pelo schema — zerados quando não há
+// tributo, que é o caso do Simples com CST 49.
 func montarPISCOFINS(p EntradaPISCofins, vProd float64, defaultCST string) (PIS, COFINS, float64, float64) {
 	cst, aliqPIS, aliqCOFINS := p.CST, p.AliqPIS, p.AliqCOFINS
 	if cst == "" {
@@ -702,14 +710,22 @@ func montarPISCOFINS(p EntradaPISCofins, vProd float64, defaultCST string) (PIS,
 		return PIS{PISAliq: &PISAliq{CST: cst, VBC: fmtVal(vProd), PPIS: fmtVal(aliqPIS), VPIS: fmtVal(vPIS)}},
 			COFINS{COFINSAliq: &COFINSAliq{CST: cst, VBC: fmtVal(vProd), PCOFINS: fmtVal(aliqCOFINS), VCOFINS: fmtVal(vCOFINS)}},
 			vPIS, vCOFINS
-	case "99":
-		vPIS := vProd * aliqPIS / 100
-		vCOFINS := vProd * aliqCOFINS / 100
-		return PIS{PISOutr: &PISOutr{CST: cst, VBC: fmtVal(vProd), PPIS: fmtVal(aliqPIS), VPIS: fmtVal(vPIS)}},
-			COFINS{COFINSOutr: &COFINSOutr{CST: cst, VBC: fmtVal(vProd), PCOFINS: fmtVal(aliqCOFINS), VCOFINS: fmtVal(vCOFINS)}},
-			vPIS, vCOFINS
 	default:
-		return PIS{PISNt: &PISNt{CST: cst}}, COFINS{COFINSNt: &COFINSNt{CST: cst}}, 0, 0
+		if cstPISNaoTributado[cst] {
+			return PIS{PISNt: &PISNt{CST: cst}}, COFINS{COFINSNt: &COFINSNt{CST: cst}}, 0, 0
+		}
+		// Outras operações (49, 50-56, 60-67, 70-75, 98, 99...): o grupo exige
+		// vBC e alíquota. Sem alíquota informada sai tudo zero, que é como o
+		// Simples Nacional declara PIS/COFINS na NFC-e.
+		vBC := vProd
+		if aliqPIS == 0 && aliqCOFINS == 0 {
+			vBC = 0
+		}
+		vPIS := vBC * aliqPIS / 100
+		vCOFINS := vBC * aliqCOFINS / 100
+		return PIS{PISOutr: &PISOutr{CST: cst, VBC: fmtVal(vBC), PPIS: fmtVal(aliqPIS), VPIS: fmtVal(vPIS)}},
+			COFINS{COFINSOutr: &COFINSOutr{CST: cst, VBC: fmtVal(vBC), PCOFINS: fmtVal(aliqCOFINS), VCOFINS: fmtVal(vCOFINS)}},
+			vPIS, vCOFINS
 	}
 }
 
