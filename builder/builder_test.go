@@ -1743,3 +1743,48 @@ func TestCRT1_CSOSNNaoSuportado_ErroExplicito(t *testing.T) {
 		t.Errorf("erro não cita o CSOSN: %v", err)
 	}
 }
+
+func TestProducaoExigeNomeDoDestinatarioEDoItem(t *testing.T) {
+	// Campo obrigatório vazio volta da SEFAZ como "Falha no Schema XML"
+	// (cStat=225), que não diz qual campo é -- queimou 18/09/2026, numa nota
+	// clonada onde o nome do destinatário ficou em branco. Erro aqui nomeia
+	// o campo antes de assinar e transmitir.
+	base := func() builder.EntradaNFe {
+		e := entradaNFCe()
+		e.Mod = "55"
+		e.TpAmb = "1"
+		e.CSC = ""
+		e.Dest = builder.EntradaDest{
+			CNPJ: "11736186000168", Nome: "CLIENTE TESTE",
+			End: builder.EntradaEndereco{Logradouro: "RUA 3", Numero: "SN", Bairro: "CENTRO", CodigoMun: "5201306", Municipio: "ANICUNS", UF: "GO", CEP: "76170000"},
+		}
+		return e
+	}
+
+	t.Run("destinatario sem nome", func(t *testing.T) {
+		e := base()
+		e.Dest.Nome = "   "
+		_, _, err := builder.Build(e)
+		if err == nil || !strings.Contains(err.Error(), "xNome") {
+			t.Fatalf("esperava erro citando xNome, veio: %v", err)
+		}
+	})
+
+	t.Run("item sem descricao", func(t *testing.T) {
+		e := base()
+		e.Itens[0].Nome = ""
+		_, _, err := builder.Build(e)
+		if err == nil || !strings.Contains(err.Error(), "xProd") {
+			t.Fatalf("esperava erro citando xProd, veio: %v", err)
+		}
+	})
+
+	t.Run("homologacao nao exige nome do destinatario", func(t *testing.T) {
+		e := base()
+		e.TpAmb = "2"
+		e.Dest.Nome = ""
+		if _, _, err := builder.Build(e); err != nil {
+			t.Fatalf("homologação sobrescreve o xNome, não deveria falhar: %v", err)
+		}
+	})
+}

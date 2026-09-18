@@ -1017,6 +1017,19 @@ func validarEntrada(e EntradaNFe) error {
 	if e.TpEmis == "9" && e.Mod != ModeloNFCe {
 		return fmt.Errorf("TpEmis=9 (contingência offline) só vale para NFC-e (mod=65)")
 	}
+	// Destinatário identificado exige xNome (TString de 2 a 60 no schema).
+	// Em homologação não checa: lá o nome é sobrescrito pelo texto que a
+	// SEFAZ obriga, qualquer coisa que venha é descartada.
+	if e.TpAmb != "2" && (e.Dest.CNPJ != "" || e.Dest.CPF != "") && strings.TrimSpace(e.Dest.Nome) == "" {
+		return fmt.Errorf("destinatário com CNPJ/CPF exige o nome preenchido (xNome)")
+	}
+	// xProd também é obrigatório em todo item -- vazio só aparece na SEFAZ
+	// como "Falha no Schema XML", sem dizer qual item nem qual campo.
+	for i, item := range e.Itens {
+		if strings.TrimSpace(item.Nome) == "" {
+			return fmt.Errorf("item %d sem descrição (xProd)", i+1)
+		}
+	}
 	return nil
 }
 
