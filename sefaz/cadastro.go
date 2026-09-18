@@ -51,6 +51,21 @@ type CadastroContribuinte struct {
 	InicioAtividade string
 	UltimaSituacao  string
 	Baixa           string
+	// Endereco vem do grupo <ender> do consCad. Nem toda UF preenche -- várias
+	// devolvem só nome e situação --, então campo vazio é esperado, não erro.
+	Endereco EnderecoCadastro
+}
+
+// EnderecoCadastro é o endereço do contribuinte como a SEFAZ da UF tem
+// registrado (grupo <ender> do leiaute consCad 2.00).
+type EnderecoCadastro struct {
+	Logradouro  string
+	Numero      string
+	Complemento string
+	Bairro      string
+	CodigoMun   string // cMun: código IBGE de 7 dígitos
+	Municipio   string
+	CEP         string
 }
 
 // Habilitado informa se a inscrição estadual está ativa (cSit=1).
@@ -134,6 +149,15 @@ func (cl *Cliente) ConsultarCadastro(ctx context.Context, uf, documento string) 
 		DIniAtiv   string `xml:"dIniAtiv"`
 		DUltSit    string `xml:"dUltSit"`
 		DBaixa     string `xml:"dBaixa"`
+		Ender      struct {
+			XLgr    string `xml:"xLgr"`
+			Nro     string `xml:"nro"`
+			XCpl    string `xml:"xCpl"`
+			XBairro string `xml:"xBairro"`
+			CMun    string `xml:"cMun"`
+			XMun    string `xml:"xMun"`
+			CEP     string `xml:"CEP"`
+		} `xml:"ender"`
 	}
 	type xmlInfCons struct {
 		RetornoSEFAZ
@@ -168,6 +192,15 @@ func (cl *Cliente) ConsultarCadastro(ctx context.Context, uf, documento string) 
 			InicioAtividade: c.DIniAtiv,
 			UltimaSituacao:  c.DUltSit,
 			Baixa:           c.DBaixa,
+			Endereco: EnderecoCadastro{
+				Logradouro:  c.Ender.XLgr,
+				Numero:      c.Ender.Nro,
+				Complemento: c.Ender.XCpl,
+				Bairro:      c.Ender.XBairro,
+				CodigoMun:   c.Ender.CMun,
+				Municipio:   c.Ender.XMun,
+				CEP:         c.Ender.CEP,
+			},
 		})
 	}
 	return saida, nil

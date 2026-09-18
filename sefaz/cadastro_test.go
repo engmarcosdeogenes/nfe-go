@@ -141,3 +141,57 @@ func TestConsultarCadastro_IEUsaCampoIE(t *testing.T) {
 		t.Errorf("UF não foi normalizada: %s", enviado)
 	}
 }
+
+// Resposta com o grupo <ender>, que a SEFAZ preenche em parte das UFs — é de
+// onde sai o endereço (e o código IBGE do município) pra preencher cadastro
+// de cliente sem digitação.
+const retConsCadComEndereco = `<retConsCad versao="2.00" xmlns="http://www.portalfiscal.inf.br/nfe">` +
+	`<infCons><verAplic>GO4.0</verAplic><cStat>111</cStat>` +
+	`<xMotivo>Consulta cadastro com uma ocorrência</xMotivo>` +
+	`<UF>GO</UF><CNPJ>64007210000194</CNPJ>` +
+	`<dhCons>2026-09-18T12:00:00-03:00</dhCons><cUF>52</cUF>` +
+	`<infCad><IE>203500601</IE><CNPJ>64007210000194</CNPJ><UF>GO</UF>` +
+	`<cSit>1</cSit><indCredNFe>1</indCredNFe><indCredCTe>4</indCredCTe>` +
+	`<xNome>JN LATAS DISTRIBUIDORA LTDA</xNome><xFant>JN LATAS</xFant>` +
+	`<ender><xLgr>AV 24 DE OUTUBRO</xLgr><nro>468</nro><xCpl>QUADRA P-89 LOTE 53</xCpl>` +
+	`<xBairro>SETOR DOS FUNCIONARIOS</xBairro><cMun>5208707</cMun><xMun>GOIANIA</xMun>` +
+	`<CEP>74543100</CEP></ender>` +
+	`</infCad></infCons></retConsCad>`
+
+func TestConsultarCadastro_ExtraiEndereco(t *testing.T) {
+	mock := &cadastroTransport{resposta: envelopeConsCad(retConsCadComEndereco)}
+	cl := sefaz.NovoClienteTransporte("52", sefaz.Homologacao, mock)
+
+	ret, err := cl.ConsultarCadastro(context.Background(), "GO", "64007210000194")
+	if err != nil {
+		t.Fatalf("ConsultarCadastro: %v", err)
+	}
+	if len(ret.Cadastros) != 1 {
+		t.Fatalf("esperava 1 cadastro, veio %d", len(ret.Cadastros))
+	}
+	e := ret.Cadastros[0].Endereco
+	if e.Logradouro != "AV 24 DE OUTUBRO" || e.Numero != "468" {
+		t.Errorf("logradouro/numero: %q / %q", e.Logradouro, e.Numero)
+	}
+	if e.Bairro != "SETOR DOS FUNCIONARIOS" || e.CEP != "74543100" {
+		t.Errorf("bairro/CEP: %q / %q", e.Bairro, e.CEP)
+	}
+	// cMun é o que interessa: é o código IBGE que vai na NF-e.
+	if e.CodigoMun != "5208707" || e.Municipio != "GOIANIA" {
+		t.Errorf("municipio: %q / %q", e.CodigoMun, e.Municipio)
+	}
+}
+
+func TestConsultarCadastro_SemEnderecoNaoQuebra(t *testing.T) {
+	// Várias UFs devolvem só nome e situação. Endereço vazio é esperado.
+	mock := &cadastroTransport{resposta: envelopeConsCad(retConsCadHabilitado)}
+	cl := sefaz.NovoClienteTransporte("52", sefaz.Homologacao, mock)
+
+	ret, err := cl.ConsultarCadastro(context.Background(), "GO", "34152609000106")
+	if err != nil {
+		t.Fatalf("ConsultarCadastro: %v", err)
+	}
+	if ret.Cadastros[0].Endereco.CodigoMun != "" {
+		t.Errorf("esperava endereço vazio, veio %+v", ret.Cadastros[0].Endereco)
+	}
+}
