@@ -3,6 +3,7 @@ package danfe_test
 import (
 	"bytes"
 	"compress/zlib"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -64,6 +65,12 @@ func nfeAssinadaParaTeste(t *testing.T) []byte {
 		Pagamento: []builder.EntradaPagamento{{Forma: "15", Valor: 3400.00, APrazo: true}},
 		InfCpl:    "Pedido interno: #42 - Condição de pagamento: 30/60/90 dias.",
 	}
+
+	return assinarEntrada(t, entrada)
+}
+
+func assinarEntrada(t *testing.T, entrada builder.EntradaNFe) []byte {
+	t.Helper()
 
 	xmlBytes, _, err := builder.Build(entrada)
 	if err != nil {
@@ -595,16 +602,17 @@ func TestGerarDANFE_AcentosNaoQuebram(t *testing.T) {
 
 	conteudo := decodificarStreamsPDF(t, pdfBytes)
 
-	// "Série" em cp1252: 'S' 'é'=0xE9 'r' 'i' 'e'. Em UTF-8 cru (o bug), o é vira
-	// 2 bytes (0xC3 0xA9) em vez de 1 — a assinatura exata do mojibake.
-	mojibake := []byte{'S', 0xC3, 0xA9, 'r', 'i', 'e'}
+	// "SÉRIE" em cp1252: 'S' 'É'=0xC9 'R' 'I' 'E'. Em UTF-8 cru (o bug), o É
+	// vira 2 bytes (0xC3 0x89) em vez de 1 — a assinatura exata do mojibake.
+	// O rótulo sai em caixa alta porque o MOC 7.0 Anexo II §3.7.4 exige.
+	mojibake := []byte{'S', 0xC3, 0x89, 'R', 'I', 'E'}
 	if bytes.Contains(conteudo, mojibake) {
-		t.Error("PDF contém 'SÃ©rie' — texto UTF-8 cru não traduzido pra cp1252 (mojibake)")
+		t.Error("PDF contém 'SÃ‰RIE' — texto UTF-8 cru não traduzido pra cp1252 (mojibake)")
 	}
 
-	correto := []byte{'S', 0xE9, 'r', 'i', 'e'}
+	correto := []byte{'S', 0xC9, 'R', 'I', 'E'}
 	if !bytes.Contains(conteudo, correto) {
-		t.Error("rótulo 'Série' não apareceu com o byte cp1252 correto (0xE9) no PDF")
+		t.Error("rótulo 'SÉRIE' não apareceu com o byte cp1252 correto (0xC9) no PDF")
 	}
 }
 
@@ -737,4 +745,100 @@ func TestParseNFeXML(t *testing.T) {
 	t.Logf("Chave: %s", dados.ChaveAcesso)
 	t.Logf("Emitente: %s | Destinatário: %s", dados.EmitNome, dados.DestNome)
 	t.Logf("Total NF: R$ %.2f | Itens: %d", dados.VNF, len(dados.Itens))
+}
+
+// contarPaginas conta os objetos de pagina do PDF. Os dicionarios de objeto
+// do fpdf saem sem compressao (so os streams de conteudo sao comprimidos),
+// entao "/Type /Page" no bruto e confiavel -- "/Type /Pages" (o no raiz) tem
+// o "s" e nao entra na conta.
+func contarPaginas(pdfBytes []byte) int {
+	n := 0
+	for i := 0; ; {
+		j := bytes.Index(pdfBytes[i:], []byte("/Type /Page"))
+		if j < 0 {
+			return n
+		}
+		i += j + len("/Type /Page")
+		if i < len(pdfBytes) && pdfBytes[i] == 's' {
+			continue
+		}
+		n++
+	}
+}
+
+// TestGerarDANFE_TabelaEsticaEPagina cobre as duas pontas do dimensionamento
+// da tabela de itens, que e a logica que decide a altura util da folha:
+// nota curta tem que ocupar UMA pagina inteira (a tabela estica ate o limite,
+// em vez de terminar no ultimo item e deixar um terco de A4 em branco), e
+// nota longa tem que paginar de verdade, em vez de escrever por cima do
+// rodape.
+func TestGerarDANFE_TabelaEsticaEPagina(t *testing.T) {
+	curta, err := danfe.Gerar(nfeAssinadaParaTeste(t), false)
+	if err != nil {
+		t.Fatalf("Gerar (nota curta): %v", err)
+	}
+	if got := contarPaginas(curta); got != 1 {
+		t.Errorf("nota de 2 itens: %d paginas, esperado 1", got)
+	}
+
+	longa, err := danfe.Gerar(nfeAssinadaComNItens(t, 80), false)
+	if err != nil {
+		t.Fatalf("Gerar (nota longa): %v", err)
+	}
+	paginas := contarPaginas(longa)
+	if paginas < 2 {
+		t.Errorf("nota de 80 itens: %d paginas, esperado ao menos 2", paginas)
+	}
+
+	// MOC 7.0 Anexo II §3.5 -- toda folha adicional repete o cabeçalho de
+	// identificação (emitente, DANFE, número/série/folha, códigos de barras,
+	// natureza da operação, chave de acesso e IE/IEST/CNPJ). Se o cabeçalho
+	// sair só na primeira folha, as seguintes viram tabela solta sem
+	// identificação nenhuma, que é exatamente o que o item proíbe.
+	conteudo := decodificarStreamsPDF(t, longa)
+	if got := bytes.Count(conteudo, []byte("CHAVE DE ACESSO")); got != paginas {
+		t.Errorf("'CHAVE DE ACESSO' aparece %d vezes em %d folhas -- o cabeçalho do §3.5 não está sendo repetido", got, paginas)
+	}
+}
+
+func nfeAssinadaComNItens(t *testing.T, n int) []byte {
+	t.Helper()
+
+	entrada := builder.EntradaNFe{
+		Serie: "1", NNF: "43",
+		DhEmi:    time.Date(2026, 6, 25, 10, 0, 0, 0, time.FixedZone("BRT", -3*3600)),
+		NatOp:    "VENDA DE MERCADORIA",
+		TpAmb:    "2",
+		FinNFe:   "1",
+		IndFinal: "0",
+		IndPres:  "1",
+		Emitente: builder.EntradaEmitente{
+			CNPJ: "11222333000181", Nome: "METALURGICA TESTE LTDA", Fantasia: "METALTESTE",
+			IE: "123456789", CRT: "1",
+			End: builder.EntradaEndereco{
+				Logradouro: "Rua das Chapas", Numero: "100", Bairro: "Industrial",
+				CodigoMun: "5208707", Municipio: "Goiania", UF: "GO",
+				CEP: "74000000", Pais: "1058", NomePais: "Brasil", Fone: "6299999999",
+			},
+		},
+		Dest: builder.EntradaDest{
+			CNPJ: "99888777000155", Nome: "CLIENTE INDUSTRIA SA", IndIEDest: "1", IE: "987654321",
+			End: builder.EntradaEndereco{
+				Logradouro: "Av. do Aco", Numero: "500", Bairro: "Centro",
+				CodigoMun: "5208707", Municipio: "Goiania", UF: "GO",
+				CEP: "74100000", Pais: "1058", NomePais: "Brasil",
+			},
+		},
+		Frete: builder.EntradaFrete{Modalidade: "1"},
+	}
+	for i := 0; i < n; i++ {
+		entrada.Itens = append(entrada.Itens, builder.EntradaItem{
+			CProd: fmt.Sprintf("ITEM-%03d", i), CEAN: "SEM GTIN",
+			Nome: fmt.Sprintf("PERFIL ESTRUTURAL DE ACO GALVANIZADO LOTE %03d", i),
+			NCM:  "72162100", CFOP: "5102", Unidade: "UN",
+			Quantidade: 1, VUnitario: 10.00,
+			ICMS: builder.EntradaICMS{CSOSN: "400"},
+		})
+	}
+	return assinarEntrada(t, entrada)
 }

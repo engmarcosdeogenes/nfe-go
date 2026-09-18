@@ -17,7 +17,7 @@ SEFAZ e gera o DANFE.
 | `sign/` | Assinatura digital xmldsig (Manual de Integração §4): canoniza `<infNFe>`, SHA-1 → DigestValue, RSA-SHA1 do SignedInfo → SignatureValue, insere `<Signature>` antes de `</NFe>`. |
 | `cert/` | Carrega certificado A1 (`.pfx` / PKCS12) e monta o `tls.Config` para TLS mútuo com a SEFAZ. Raiz ICP-Brasil embutida (`//go:embed`). |
 | `sefaz/` | Cliente SOAP: `autorizacao`, `cadastro` (consulta), `contingencia` (FS-DA), `distribuicao` (DistDFe), `epec`, `eventos` (CC-e, cancelamento, manifestação...). `endpoints.go` mapeia URL por UF/ambiente; `client.go` mapeia SOAPAction por serviço. |
-| `danfe/` | Gera o DANFE em PDF (retrato A4) e o cupom NFC-e a partir do XML autorizado. `danfe.Gerar(nfeXML) → []byte`. `parser.go` desserializa o XML de volta. |
+| `danfe/` | Gera o DANFE em PDF (retrato A4) e o cupom NFC-e a partir do XML autorizado. `danfe.Gerar(nfeXML) → []byte`. `parser.go` desserializa o XML de volta. **A geometria do DANFE A4 é normativa**: `layout_anexo2.go` transcreve a tabela de coordenadas e os tamanhos mínimos de fonte do MOC 7.0 Anexo II (§3.7 e §3.8.1), e `render_anexo2.go` desenha em cima dela — não mudar posição, largura ou tamanho de fonte sem conferir a seção citada no comentário. O PDF do manual está em `notas-fiscais/docs sefaz/ANEXO II -Manual EspecificaçõesTécnicas - Danfe-Código-Barras.pdf`. |
 
 Deps diretas: `go-pdf/fpdf` (PDF), `boombuler/barcode` + `skip2/go-qrcode`
 (código de barras / QR NFC-e), `sslmate/go-pkcs12` (A1).
