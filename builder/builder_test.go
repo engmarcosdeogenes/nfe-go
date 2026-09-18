@@ -1788,3 +1788,43 @@ func TestProducaoExigeNomeDoDestinatarioEDoItem(t *testing.T) {
 		}
 	})
 }
+
+func TestNaoContribuinteForcaConsumidorFinal(t *testing.T) {
+	// indIEDest=9 com indFinal=0 é recusado pela SEFAZ (cStat=696). A
+	// combinação não é escolha do emitente: não contribuinte só compra como
+	// consumidor final.
+	e := entradaNFCe()
+	e.Mod = "55"
+	e.CSC = ""
+	e.IndFinal = "0"
+	e.Dest = builder.EntradaDest{
+		CPF: "11144477735", Nome: "CONSUMIDOR SEM IE", IndIEDest: "9",
+		End: builder.EntradaEndereco{Logradouro: "RUA 3", Numero: "SN", Bairro: "CENTRO", CodigoMun: "5201306", Municipio: "ANICUNS", UF: "GO", CEP: "76170000"},
+	}
+
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if nfe.InfNFe.Ide.IndFinal != "1" {
+		t.Errorf("indFinal = %q, esperado 1 para destinatário não contribuinte", nfe.InfNFe.Ide.IndFinal)
+	}
+
+	// Contribuinte com IE mantém o que o emitente escolheu.
+	e.Dest.IndIEDest = "1"
+	e.Dest.IE = "105306355"
+	xmlBytes, _, err = builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build contribuinte: %v", err)
+	}
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if nfe.InfNFe.Ide.IndFinal != "0" {
+		t.Errorf("indFinal = %q, esperado 0 (escolha do emitente preservada)", nfe.InfNFe.Ide.IndFinal)
+	}
+}

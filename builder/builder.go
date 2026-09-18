@@ -315,6 +315,15 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 	if tpAmb == "2" && dest != nil {
 		dest.XNome = XNomeDestHomologacao
 	}
+	// Destinatário não contribuinte (indIEDest=9) só existe em operação com
+	// consumidor final -- a SEFAZ recusa a outra combinação (cStat=696,
+	// "Operação com não contribuinte deve indicar operação com consumidor
+	// final"). Não é escolha do emitente, então o indFinal acompanha em vez
+	// de virar rejeição.
+	indFinal := e.IndFinal
+	if dest != nil && dest.IndIEDest == "9" {
+		indFinal = "1"
+	}
 	finNFe := e.FinNFe
 	if finNFe == "" {
 		finNFe = "1"
@@ -359,7 +368,7 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 				CDV:      chave.CDV,
 				TpAmb:    tpAmb,
 				FinNFe:   finNFe,
-				IndFinal: e.IndFinal,
+				IndFinal: indFinal,
 				IndPres:  e.IndPres,
 				ProcEmi:  "0",
 				VerProc:  "nfe-go v0.1",
