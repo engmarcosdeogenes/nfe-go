@@ -573,7 +573,10 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 		vProdTotal += vProd
 		vDescTotal += item.VDesconto
 
-		imp, totItem := montarImposto(item, e.Emitente.CRT)
+		imp, totItem, err := montarImposto(item, e.Emitente.CRT)
+		if err != nil {
+			return nil, ICMSTot{}, nil, err
+		}
 		vBCTotal += totItem.vBC
 		vICMSTotal += totItem.vICMS
 		vBCSTTotal += totItem.vBCST
@@ -740,7 +743,7 @@ type totaisItem struct {
 	vICMSUFDest, vICMSUFRemet, vFCPUFDest  float64
 }
 
-func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
+func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 	imp := Imposto{}
 
 	icms := &ICMS{}
@@ -750,25 +753,48 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
 		if csosn == "" {
 			csosn = "400" // isento/sem destaque (mais comum no SN)
 		}
-		// CSOSN 500: ICMS-ST retido na operação anterior (revenda de mercadoria
-		// já tributada -- bebida, autopeça, etc). Grupo próprio ICMSSN500 com os
-		// valores da retenção, que vêm da nota de entrada do fornecedor. Os
-		// demais CSOSN de Simples (102/103/300/400) não carregam valor.
-		if csosn == "500" {
+		vProd := item.Quantidade * item.VUnitario
+		// Cada faixa de CSOSN tem grupo próprio no schema 4.00 -- o
+		// ICMSSN102 só aceita 102/103/300/400 (enumeração fechada), então
+		// jogar qualquer CSOSN nele derruba a nota com cStat=225 ("Falha no
+		// Schema XML"), sem dizer qual campo.
+		switch csosn {
+		case "101":
+			// 101 = permite crédito de ICMS ao destinatário. pCredSN é a
+			// alíquota de crédito do Simples (Anexo I/II da LC 123) --
+			// reusa EntradaICMS.Aliq, que no Simples não tem outro uso.
+			// Sem alíquota o crédito sai 0,00: quem não transfere crédito
+			// emite com CSOSN 102, não 101 zerado.
+			if item.ICMS.Aliq <= 0 {
+				return Imposto{}, totaisItem{}, fmt.Errorf("builder: CSOSN 101 exige a alíquota de crédito do Simples em ICMS.Aliq (item %q)", item.CProd)
+			}
+			icms.ICMSSN101 = &ICMSSN101{
+				Orig: "0", CSOSN: "101",
+				PCredSN:     fmtVal(item.ICMS.Aliq),
+				VCredICMSSN: fmtVal(vProd * item.ICMS.Aliq / 100),
+			}
+		case "102", "103", "300", "400":
+			icms.ICMSSN102 = &ICMSSN102{Orig: "0", CSOSN: csosn}
+		case "500":
+			// ICMS-ST retido na operação anterior (revenda de mercadoria já
+			// tributada -- bebida, autopeça, etc). Valores vêm da nota de
+			// entrada do fornecedor.
 			icms.ICMSSN500 = &ICMSSN500{
 				Orig: "0", CSOSN: "500",
 				VBCSTRet:   fmtVal(item.ICMS.VBCSTRet),
 				PST:        fmtVal(item.ICMS.PST),
 				VICMSSTRet: fmtVal(item.ICMS.VICMSSTRet),
 			}
-		} else {
-			icms.ICMSSN102 = &ICMSSN102{Orig: "0", CSOSN: csosn}
+		default:
+			// 201/202/203/900 exigem grupos com ST e/ou ICMS próprio (os
+			// tipos existem em tipos.go) e ainda não são montados aqui.
+			// Erro explícito em vez de XML inválido: cStat=225 não diz nada.
+			return Imposto{}, totaisItem{}, fmt.Errorf("builder: CSOSN %q ainda não suportado (item %q)", csosn, item.CProd)
 		}
 		imp.ICMS = icms
-		vProd := item.Quantidade * item.VUnitario
 		pis, cofins, vPIS, vCOFINS := montarPISCOFINS(item.PISCofins, vProd, "07")
 		imp.PIS, imp.COFINS = pis, cofins
-		return imp, totaisItem{vPIS: vPIS, vCOFINS: vCOFINS}
+		return imp, totaisItem{vPIS: vPIS, vCOFINS: vCOFINS}, nil
 	}
 
 	// Regime Normal (CRT 3)
@@ -910,7 +936,7 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem) {
 		tot.vBCIBSCBS, tot.vIBSUF, tot.vIBSMun, tot.vIBS, tot.vCBS = vBCIBSCBS, vIBSUF, vIBSMun, vIBS, vCBS
 	}
 
-	return imp, tot
+	return imp, tot, nil
 }
 
 func montarPagamento(ps []EntradaPagamento) Pagamento {

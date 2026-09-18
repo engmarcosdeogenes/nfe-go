@@ -1684,3 +1684,62 @@ func TestFusoUF(t *testing.T) {
 		}
 	}
 }
+
+func TestCRT1_CSOSN101_PermiteCredito(t *testing.T) {
+	// Simples Nacional que transfere crédito de ICMS ao destinatário.
+	// CSOSN 101 tem grupo próprio (ICMSSN101, com pCredSN/vCredICMSSN) --
+	// serializar dentro de ICMSSN102 derruba a nota com cStat=225.
+	e := entradaNFCe()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P101", CEAN: "SEM GTIN", Nome: "LATA ALUMINIO",
+		NCM: "76129090", CFOP: "5102", Unidade: "UN",
+		Quantidade: 2, VUnitario: 325.00,
+		ICMS: builder.EntradaICMS{CSOSN: "101", Aliq: 2.5},
+	}}
+
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build CRT1 CSOSN101: %v", err)
+	}
+
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	icms := nfe.InfNFe.Det[0].Imposto.ICMS
+	if icms.ICMSSN102 != nil {
+		t.Error("não deveria ter ICMSSN102 quando CSOSN=101")
+	}
+	if icms.ICMSSN101 == nil {
+		t.Fatal("esperava ICMSSN101 para CSOSN=101")
+	}
+	if icms.ICMSSN101.CSOSN != "101" || icms.ICMSSN101.Orig != "0" {
+		t.Errorf("orig/CSOSN: %q/%q", icms.ICMSSN101.Orig, icms.ICMSSN101.CSOSN)
+	}
+	if icms.ICMSSN101.PCredSN != "2.50" {
+		t.Errorf("pCredSN = %q, esperado 2.50", icms.ICMSSN101.PCredSN)
+	}
+	// 650.00 * 2.5% = 16.25
+	if icms.ICMSSN101.VCredICMSSN != "16.25" {
+		t.Errorf("vCredICMSSN = %q, esperado 16.25", icms.ICMSSN101.VCredICMSSN)
+	}
+}
+
+func TestCRT1_CSOSNNaoSuportado_ErroExplicito(t *testing.T) {
+	// CSOSN com ST (201/202) ainda não é montado -- tem que falhar aqui,
+	// com o código no texto, em vez de virar XML inválido e voltar da
+	// SEFAZ como "Falha no Schema XML" sem dizer qual campo.
+	e := entradaNFCe()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P201", CEAN: "SEM GTIN", Nome: "ITEM COM ST",
+		NCM: "76129090", CFOP: "5102", Unidade: "UN",
+		Quantidade: 1, VUnitario: 10.00,
+		ICMS: builder.EntradaICMS{CSOSN: "201"},
+	}}
+
+	if _, _, err := builder.Build(e); err == nil {
+		t.Fatal("esperava erro para CSOSN=201")
+	} else if !strings.Contains(err.Error(), "201") {
+		t.Errorf("erro não cita o CSOSN: %v", err)
+	}
+}
