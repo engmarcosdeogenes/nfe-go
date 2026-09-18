@@ -5,7 +5,7 @@ API de terceiro** (Focus NFe, eNotas, etc.). Constrói, assina, transmite à
 SEFAZ e gera o DANFE.
 
 - Módulo: `github.com/engmarcosdeogenes/nfe-go` · Go 1.25
-- Cobre: NF-e 4.0 e NFC-e (modelo 65)
+- Cobre: NF-e 4.0 (modelo 55) e NFC-e (modelo 65) — **só mercadoria**
 - Consumida por: [[notas-fiscais]] (SaaS fiscal) e o ERP [[MetalurgicaBase]]
 - Desenhada como lib reutilizável — nenhum acoplamento a projeto consumidor
 
@@ -41,6 +41,38 @@ danfe.Gerar(xmlAutorizado)               → pdf
 - Reforma tributária (IBS/CBS/IS) já está no builder — ver testes
   `TestCRT3_IBSCBS*` em `builder/builder_test.go`.
 
+## Escopo: mercadoria, não serviço
+
+Esta lib emite **NF-e modelo 55 e NFC-e modelo 65**. Nota de serviço é
+**NFS-e**: documento municipal, leiaute próprio (DANFSE), webservice da
+prefeitura ou do Emissor Nacional — não passa por aqui. Quem trata NFS-e é
+o [[notas-fiscais]] (`internal/usecase/emitir_nfse.go`), e lá o
+`gerar_danfe.go` recusa NFS-e de propósito: o comprovante dela é o
+XML/número da prefeitura, não um DANFE.
+
+A NF-e 55 ainda admite o grupo ISSQN no schema, para **nota conjugada**
+(mercadoria + serviço no mesmo documento, onde o estado permite). É por isso
+que o leiaute do DANFE reserva o quadro "Cálculo do ISSQN". A lib **não
+emite conjugada** — não há campo de ISSQN no `builder` nem no `parser` do
+`danfe`.
+
+Consequências no DANFE, que são decisão e não esquecimento:
+
+- O quadro "Cálculo do ISSQN" sai suprimido, pelo §3.3.3 do Anexo II, e a
+  altura liberada vai para o quadro "Dados dos Produtos/Serviços" — que é a
+  condição que o próprio item impõe.
+- A **inscrição municipal do emitente não aparece** no documento: ela é o
+  campo C19, daquele quadro, e não existe em nenhum outro lugar do leiaute
+  (conferido em 3.8.1 retrato e 3.8.2 paisagem). Versões até a v1.6.0
+  desenhavam a IM espremida na linha do emitente — isso foi copiado de
+  DANFE de concorrente, não do manual, e saiu na v1.7.0.
+
+Se um dia entrar nota conjugada no `builder`, o caminho é fazer o quadro
+voltar inteiro (com a IM no lugar dele), não recolocar a IM na linha do
+emitente. Se for só para imprimir a IM por outro motivo, o §3.10.5 manda
+copiar para `infCpl` — ver `informacoesComplementares()` em
+`danfe/render_anexo2.go`.
+
 ## Testes
 
 `go test ./...` — cobertura pesada no `builder` (variações de CRT, CST de
@@ -53,3 +85,7 @@ pagamento com cartão). Rodar sempre depois de mexer em grupo de imposto.
   puro é requisito (a SEFAZ exige TLS mútuo com curvas específicas).
 - Não trocar SHA-1 / RSA-SHA1 na assinatura — é o que o Manual exige, não
   é escolha.
+- Não mexer em posição, largura ou tamanho de fonte do DANFE A4 sem abrir a
+  seção do Anexo II citada no comentário. Os números de `layout_anexo2.go`
+  são o leiaute do manual e os pisos de fonte do §3.7 — não são gosto.
+- Não tentar emitir NFS-e por aqui (ver "Escopo: mercadoria, não serviço").
