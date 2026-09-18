@@ -842,3 +842,34 @@ func nfeAssinadaComNItens(t *testing.T, n int) []byte {
 	}
 	return assinarEntrada(t, entrada)
 }
+
+// TestGerarPrevia cobre o caso de conferir a nota ANTES de transmitir: o
+// desenho tem que sair mesmo sem protocolo, e com tarja que impeça confundir
+// o papel com um DANFE válido.
+func TestGerarPrevia(t *testing.T) {
+	nfeXML := nfeAssinadaParaTeste(t)
+
+	previa, err := danfe.GerarPrevia(nfeXML, nil)
+	if err != nil {
+		t.Fatalf("GerarPrevia: %v", err)
+	}
+	if !strings.HasPrefix(string(previa[:4]), "%PDF") {
+		t.Fatal("prévia não é um PDF válido")
+	}
+
+	// A tarja tem que engordar o PDF em relação ao mesmo documento sem ela --
+	// é o mesmo critério do teste da marca "CANCELADA".
+	semMarca, err := danfe.Gerar(nfeXML, false)
+	if err != nil {
+		t.Fatalf("Gerar: %v", err)
+	}
+	if len(previa) <= len(semMarca) {
+		t.Errorf("prévia (%d bytes) deveria ser maior que o DANFE limpo (%d) por causa da tarja", len(previa), len(semMarca))
+	}
+}
+
+func TestGerarPrevia_XMLInvalido(t *testing.T) {
+	if _, err := danfe.GerarPrevia([]byte("<nada/>"), nil); err == nil {
+		t.Fatal("esperava erro com XML que não é NF-e")
+	}
+}

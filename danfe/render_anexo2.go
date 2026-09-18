@@ -14,7 +14,17 @@ import (
 // posição e largura que o manual define; o que o manual não fixa está
 // marcado com a seção que autoriza a escolha.
 
+// renderizarPrevia é o mesmo desenho do DANFE, com tarja de pré-visualização
+// no lugar da de cancelamento.
+func renderizarPrevia(d *DadosDANFE, logo *Logo) ([]byte, error) {
+	return renderizarComMarca(d, false, nil, logo, "PRE-VISUALIZACAO - SEM VALOR FISCAL", 28)
+}
+
 func renderizar(d *DadosDANFE, cancelada bool, epec *InfoEPEC, logo *Logo) ([]byte, error) {
+	return renderizarComMarca(d, cancelada, epec, logo, "", 0)
+}
+
+func renderizarComMarca(d *DadosDANFE, cancelada bool, epec *InfoEPEC, logo *Logo, marca string, tamanhoMarca float64) ([]byte, error) {
 	pdf := novoDoc(fpdf.New("P", "mm", "A4", ""))
 	pdf.SetMargins(margem, margem, margem)
 	pdf.SetAutoPageBreak(true, margem)
@@ -54,6 +64,9 @@ func renderizar(d *DadosDANFE, cancelada bool, epec *InfoEPEC, logo *Logo) ([]by
 
 	if cancelada {
 		renderMarcaCancelada(pdf)
+	}
+	if marca != "" {
+		renderMarcaDiagonal(pdf, marca, tamanhoMarca)
 	}
 
 	if pdf.Err() {

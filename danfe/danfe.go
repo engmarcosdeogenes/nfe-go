@@ -57,6 +57,27 @@ func Gerar(nfeXML []byte, cancelada bool) ([]byte, error) {
 	return renderizar(dados, cancelada, nil, nil)
 }
 
+// GerarPrevia desenha o DANFE de uma nota que ainda NÃO foi transmitida, pra
+// conferir o documento antes de mandar pra SEFAZ.
+//
+// Aceita o XML montado sem assinatura e sem protocolo -- é o mesmo caminho do
+// EPEC, que também renderiza sem autorização. Sai com tarja de
+// pré-visualização: o papel não pode ser confundido com DANFE válido, que só
+// existe depois da autorização (e leva protocolo e chave consultável).
+func GerarPrevia(nfeXML []byte, logo *Logo) ([]byte, error) {
+	dados, err := ParseNFeXML(nfeXML)
+	if err != nil {
+		return nil, fmt.Errorf("danfe: previa: %w", err)
+	}
+	// O parser é tolerante de propósito (aceita XML parcial pra não quebrar
+	// DANFE de nota antiga). Numa prévia isso sairia como papel em branco,
+	// então aqui exige o mínimo que identifica uma NF-e.
+	if dados.ChaveAcesso == "" || dados.EmitCNPJ == "" {
+		return nil, fmt.Errorf("danfe: previa: XML não parece uma NF-e (sem chave de acesso ou emitente)")
+	}
+	return renderizarPrevia(dados, logo)
+}
+
 // Logo é a marca do emitente estampada no canto superior esquerdo do bloco
 // "IDENTIFICAÇÃO DO EMITENTE" — Tipo é o que fpdf.ImageOptions espera
 // ("PNG" ou "JPG"), Dados é o arquivo bruto (não recodificado).
@@ -103,7 +124,14 @@ func GerarComContingenciaEPEC(nfeXMLAssinado []byte, epec InfoEPEC) ([]byte, err
 // a página — mesmo padrão visual usado por DANFEs de mercado pra distinguir
 // nota cancelada de nota válida à primeira vista.
 func renderMarcaCancelada(pdf *Doc) {
-	pdf.SetFont("Times", "B", 60)
+	renderMarcaDiagonal(pdf, "CANCELADA", 60)
+}
+
+// renderMarcaDiagonal estampa a tarja diagonal do documento. Texto longo
+// precisa de fonte menor pra não estourar a diagonal da folha, por isso o
+// tamanho vem de fora.
+func renderMarcaDiagonal(pdf *Doc, texto string, tamanhoFonte float64) {
+	pdf.SetFont("Times", "B", tamanhoFonte)
 	pdf.SetTextColor(200, 0, 0)
 	pdf.SetAlpha(0.35, "Normal")
 
@@ -111,7 +139,7 @@ func renderMarcaCancelada(pdf *Doc) {
 	pdf.TransformBegin()
 	pdf.TransformRotate(45, centroX, centroY)
 	pdf.SetXY(0, centroY-15)
-	pdf.CellFormat(larguraPage, 30, "CANCELADA", "", 0, "C", false, 0, "")
+	pdf.CellFormat(larguraPage, 30, texto, "", 0, "C", false, 0, "")
 	pdf.TransformEnd()
 
 	pdf.SetAlpha(1, "Normal")
