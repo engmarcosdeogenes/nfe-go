@@ -111,8 +111,10 @@ type enderecoDANFE struct {
 type itemDANFE struct {
 	Num       int
 	CProd     string
+	CEAN      string // GTIN do produto; "SEM GTIN" ou vazio quando o item não tem
 	XProd     string
 	NCM       string
+	CEST      string // vazio quando o item não é sujeito a ST
 	Orig      string
 	CST       string // CSOSN para SN, CST para RN
 	CFOP      string
@@ -176,6 +178,9 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 	// (alíquota, mal nomeado "PCST") pra 2 das 12 variantes.
 	type xmlImposto struct {
 		ICMS struct {
+			// CEST só existe de fato em variante sujeita a ST (10/30/60/70/90 e
+			// as SN equivalentes) -- decodificado em todas por simetria: tag
+			// ausente no XML só deixa o campo vazio, sem custo real.
 			ICMS00 *struct {
 				Orig  string
 				CST   string
@@ -186,6 +191,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			ICMS10 *struct {
 				Orig  string
 				CST   string
+				CEST  string
 				PICMS string `xml:"pICMS"`
 				VBC   string `xml:"vBC"`
 				VICMS string `xml:"vICMS"`
@@ -197,15 +203,15 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 				VBC   string `xml:"vBC"`
 				VICMS string `xml:"vICMS"`
 			} `xml:"ICMS20"`
-			ICMS40    *struct{ Orig, CST string }   `xml:"ICMS40"`
-			ICMS60    *struct{ Orig, CST string }   `xml:"ICMS60"`
-			ICMS90    *struct{ Orig, CST string }   `xml:"ICMS90"`
-			ICMSSN101 *struct{ Orig, CSOSN string } `xml:"ICMSSN101"`
-			ICMSSN102 *struct{ Orig, CSOSN string } `xml:"ICMSSN102"`
-			ICMSSN201 *struct{ Orig, CSOSN string } `xml:"ICMSSN201"`
-			ICMSSN202 *struct{ Orig, CSOSN string } `xml:"ICMSSN202"`
-			ICMSSN500 *struct{ Orig, CSOSN string } `xml:"ICMSSN500"`
-			ICMSSN900 *struct{ Orig, CSOSN string } `xml:"ICMSSN900"`
+			ICMS40    *struct{ Orig, CST string }         `xml:"ICMS40"`
+			ICMS60    *struct{ Orig, CST, CEST string }   `xml:"ICMS60"`
+			ICMS90    *struct{ Orig, CST, CEST string }   `xml:"ICMS90"`
+			ICMSSN101 *struct{ Orig, CSOSN string }       `xml:"ICMSSN101"`
+			ICMSSN102 *struct{ Orig, CSOSN string }       `xml:"ICMSSN102"`
+			ICMSSN201 *struct{ Orig, CSOSN, CEST string } `xml:"ICMSSN201"`
+			ICMSSN202 *struct{ Orig, CSOSN, CEST string } `xml:"ICMSSN202"`
+			ICMSSN500 *struct{ Orig, CSOSN string }       `xml:"ICMSSN500"`
+			ICMSSN900 *struct{ Orig, CSOSN, CEST string } `xml:"ICMSSN900"`
 		} `xml:"ICMS"`
 		IPI *struct {
 			PIPI string `xml:"IPITrib>pIPI"`
@@ -216,6 +222,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 		NItem string `xml:"nItem,attr"`
 		Prod  struct {
 			CProd  string `xml:"cProd"`
+			CEAN   string `xml:"cEAN"`
 			XProd  string `xml:"xProd"`
 			NCM    string `xml:"NCM"`
 			CFOP   string `xml:"CFOP"`
@@ -454,6 +461,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 		item := itemDANFE{
 			Num:     num,
 			CProd:   det.Prod.CProd,
+			CEAN:    det.Prod.CEAN,
 			XProd:   det.Prod.XProd,
 			NCM:     det.Prod.NCM,
 			CFOP:    det.Prod.CFOP,
@@ -472,6 +480,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			item.AliqICMS = parseFloat(imp.ICMS.ICMS00.PICMS)
 		case imp.ICMS.ICMS10 != nil:
 			item.Orig, item.CST = imp.ICMS.ICMS10.Orig, imp.ICMS.ICMS10.CST
+			item.CEST = imp.ICMS.ICMS10.CEST
 			item.VBC = parseFloat(imp.ICMS.ICMS10.VBC)
 			item.ICMS = parseFloat(imp.ICMS.ICMS10.VICMS)
 			item.AliqICMS = parseFloat(imp.ICMS.ICMS10.PICMS)
@@ -484,20 +493,25 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			item.Orig, item.CST = imp.ICMS.ICMS40.Orig, imp.ICMS.ICMS40.CST
 		case imp.ICMS.ICMS60 != nil:
 			item.Orig, item.CST = imp.ICMS.ICMS60.Orig, imp.ICMS.ICMS60.CST
+			item.CEST = imp.ICMS.ICMS60.CEST
 		case imp.ICMS.ICMS90 != nil:
 			item.Orig, item.CST = imp.ICMS.ICMS90.Orig, imp.ICMS.ICMS90.CST
+			item.CEST = imp.ICMS.ICMS90.CEST
 		case imp.ICMS.ICMSSN101 != nil:
 			item.Orig, item.CST = imp.ICMS.ICMSSN101.Orig, imp.ICMS.ICMSSN101.CSOSN
 		case imp.ICMS.ICMSSN102 != nil:
 			item.Orig, item.CST = imp.ICMS.ICMSSN102.Orig, imp.ICMS.ICMSSN102.CSOSN
 		case imp.ICMS.ICMSSN201 != nil:
 			item.Orig, item.CST = imp.ICMS.ICMSSN201.Orig, imp.ICMS.ICMSSN201.CSOSN
+			item.CEST = imp.ICMS.ICMSSN201.CEST
 		case imp.ICMS.ICMSSN202 != nil:
 			item.Orig, item.CST = imp.ICMS.ICMSSN202.Orig, imp.ICMS.ICMSSN202.CSOSN
+			item.CEST = imp.ICMS.ICMSSN202.CEST
 		case imp.ICMS.ICMSSN500 != nil:
 			item.Orig, item.CST = imp.ICMS.ICMSSN500.Orig, imp.ICMS.ICMSSN500.CSOSN
 		case imp.ICMS.ICMSSN900 != nil:
 			item.Orig, item.CST = imp.ICMS.ICMSSN900.Orig, imp.ICMS.ICMSSN900.CSOSN
+			item.CEST = imp.ICMS.ICMSSN900.CEST
 		}
 		if imp.IPI != nil {
 			item.IPI = parseFloat(imp.IPI.VIPI)
