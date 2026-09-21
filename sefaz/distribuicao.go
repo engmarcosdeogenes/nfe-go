@@ -140,7 +140,15 @@ func (cl *Cliente) chamarDistribuicao(ctx context.Context, cnpj, corpoConsulta s
 		Lote   xmlLote `xml:"loteDistDFeInt"`
 	}
 	type xmlResult struct {
-		Ret xmlRet `xml:"retDistDFeInt"`
+		Ret       xmlRet `xml:"retDistDFeInt"`
+		Resultado struct {
+			Ret xmlRet `xml:"retDistDFeInt"`
+		} `xml:"nfeDistDFeInteresseResult"`
+		Resposta struct {
+			Resultado struct {
+				Ret xmlRet `xml:"retDistDFeInt"`
+			} `xml:"nfeDistDFeInteresseResult"`
+		} `xml:"nfeDistDFeInteresseResponse"`
 	}
 
 	var result xmlResult
@@ -149,6 +157,12 @@ func (cl *Cliente) chamarDistribuicao(ctx context.Context, cnpj, corpoConsulta s
 	}
 
 	ret := result.Ret
+	if ret.CStat == "" {
+		ret = result.Resultado.Ret
+	}
+	if ret.CStat == "" {
+		ret = result.Resposta.Resultado.Ret
+	}
 	// 137 = nenhum documento localizado, 138 = documento(s) localizado(s) — únicos
 	// cStat de sucesso do serviço. Qualquer outro é rejeição (ex: 215 "Falha no
 	// esquema xml") e não pode virar retorno vazio silencioso.
