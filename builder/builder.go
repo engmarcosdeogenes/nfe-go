@@ -516,9 +516,11 @@ func montarDest(d EntradaDest) Destinatario {
 	}
 	ie := FormatarIE(d.IE)
 	// O leiaute atual não aceita o literal ISENTO na tag IE. Para não
-	// contribuinte/isento, a ausência da tag é a representação correta.
+	// contribuinte/isento, a ausência da tag é a representação correta. Se o
+	// operador digitou ISENTO, também traduzimos a classificação para 2.
 	if strings.EqualFold(ie, "ISENTO") {
 		ie = ""
+		indIEDest = "2"
 	}
 
 	dest := Destinatario{

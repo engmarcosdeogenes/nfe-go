@@ -940,6 +940,9 @@ func TestDestIsentoNaoGeraLiteralIE(t *testing.T) {
 	if strings.Contains(string(xmlBytes), "<IE>ISENTO</IE>") {
 		t.Fatal("XML não deve enviar o literal ISENTO na tag IE")
 	}
+	if !strings.Contains(string(xmlBytes), "<indIEDest>2</indIEDest>") {
+		t.Fatal("IE ISENTO deveria virar indIEDest=2")
+	}
 }
 
 func TestPagamentoSemPagamentos_DefaultSemPagto(t *testing.T) {
