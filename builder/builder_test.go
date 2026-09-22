@@ -1725,22 +1725,46 @@ func TestCRT1_CSOSN101_PermiteCredito(t *testing.T) {
 	}
 }
 
-func TestCRT1_CSOSNNaoSuportado_ErroExplicito(t *testing.T) {
-	// CSOSN com ST (201/202) ainda não é montado -- tem que falhar aqui,
-	// com o código no texto, em vez de virar XML inválido e voltar da
-	// SEFAZ como "Falha no Schema XML" sem dizer qual campo.
+func TestCRT1_CSOSN201_ComSTECredito(t *testing.T) {
 	e := entradaNFCe()
 	e.Itens = []builder.EntradaItem{{
 		CProd: "P201", CEAN: "SEM GTIN", Nome: "ITEM COM ST",
 		NCM: "76129090", CFOP: "5102", Unidade: "UN",
-		Quantidade: 1, VUnitario: 10.00,
-		ICMS: builder.EntradaICMS{CSOSN: "201"},
+		Quantidade: 2, VUnitario: 10.00,
+		ICMS: builder.EntradaICMS{CSOSN: "201", Aliq: 2.5, PMVAST: 40, AliqST: 18},
 	}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build CSOSN 201: %v", err)
+	}
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	sn := nfe.InfNFe.Det[0].Imposto.ICMS.ICMSSN201
+	if sn == nil || sn.CSOSN != "201" || sn.VBCST != "28.00" || sn.VICMSST != "5.04" || sn.VCredICMSSN != "0.50" {
+		t.Fatalf("grupo ICMSSN201 = %+v", sn)
+	}
+}
 
-	if _, _, err := builder.Build(e); err == nil {
-		t.Fatal("esperava erro para CSOSN=201")
-	} else if !strings.Contains(err.Error(), "201") {
-		t.Errorf("erro não cita o CSOSN: %v", err)
+func TestCRT1_CSOSN202_ComSTSemCredito(t *testing.T) {
+	e := entradaNFCe()
+	e.Itens = []builder.EntradaItem{{
+		CProd: "P202", CEAN: "SEM GTIN", Nome: "ITEM COM ST",
+		NCM: "76129090", CFOP: "5102", Unidade: "UN",
+		Quantidade: 1, VUnitario: 10.00,
+		ICMS: builder.EntradaICMS{CSOSN: "202", PMVAST: 40, AliqST: 18},
+	}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build CSOSN 202: %v", err)
+	}
+	var nfe builder.NFe
+	if err := xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if sn := nfe.InfNFe.Det[0].Imposto.ICMS.ICMSSN202; sn == nil || sn.CSOSN != "202" || sn.VBCST != "14.00" || sn.VICMSST != "2.52" {
+		t.Fatalf("grupo ICMSSN202 = %+v", sn)
 	}
 }
 
