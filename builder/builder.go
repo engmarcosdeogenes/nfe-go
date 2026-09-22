@@ -514,13 +514,19 @@ func montarDest(d EntradaDest) Destinatario {
 	if indIEDest == "" {
 		indIEDest = "9"
 	}
+	ie := FormatarIE(d.IE)
+	// O leiaute atual não aceita o literal ISENTO na tag IE. Para não
+	// contribuinte/isento, a ausência da tag é a representação correta.
+	if strings.EqualFold(ie, "ISENTO") {
+		ie = ""
+	}
 
 	dest := Destinatario{
 		CNPJ:      FormatarCNPJ(d.CNPJ),
 		CPF:       FormatarCPF(d.CPF),
 		XNome:     d.Nome,
 		IndIEDest: indIEDest,
-		IE:        FormatarIE(d.IE),
+		IE:        ie,
 		Email:     d.Email,
 	}
 

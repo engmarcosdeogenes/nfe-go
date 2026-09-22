@@ -928,6 +928,20 @@ func TestDestComCPF(t *testing.T) {
 	}
 }
 
+func TestDestIsentoNaoGeraLiteralIE(t *testing.T) {
+	e := entradaExemplo()
+	e.Dest.IndIEDest = "9"
+	e.Dest.IE = "ISENTO"
+
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build com IE ISENTO: %v", err)
+	}
+	if strings.Contains(string(xmlBytes), "<IE>ISENTO</IE>") {
+		t.Fatal("XML não deve enviar o literal ISENTO na tag IE")
+	}
+}
+
 func TestPagamentoSemPagamentos_DefaultSemPagto(t *testing.T) {
 	e := entradaExemplo()
 	e.Pagamento = nil // sem pagamentos → deve gerar detPag tPag=90
