@@ -649,7 +649,9 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	}
 	tot.VProd = fmtVal(vProdTotal)
 	tot.VFrete = fmtVal(e.Frete.VFrete)
-	tot.VNF = fmtVal(vProdTotal + e.Frete.VFrete - vDescTotal)
+	// vST compõe o valor total da operação (MOC 4.00, vNF); omitir esse
+	// valor gera rejeição 610 quando há ST prospectivo, como CSOSN 201/202.
+	tot.VNF = fmtVal(vProdTotal + e.Frete.VFrete + vICMSSTTotal - vDescTotal)
 	tot.VBC = fmtVal(vBCTotal)
 	tot.VICMS = fmtVal(vICMSTotal)
 	tot.VICMSDeson = "0.00"

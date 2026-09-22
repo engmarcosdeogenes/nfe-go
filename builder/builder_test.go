@@ -1745,6 +1745,9 @@ func TestCRT1_CSOSN201_ComSTECredito(t *testing.T) {
 	if sn == nil || sn.CSOSN != "201" || sn.VBCST != "28.00" || sn.VICMSST != "5.04" || sn.VCredICMSSN != "0.50" {
 		t.Fatalf("grupo ICMSSN201 = %+v", sn)
 	}
+	if nfe.InfNFe.Total.ICMSTot.VST != "5.04" || nfe.InfNFe.Total.ICMSTot.VNF != "25.04" {
+		t.Fatalf("totais ST/NF = %s/%s", nfe.InfNFe.Total.ICMSTot.VST, nfe.InfNFe.Total.ICMSTot.VNF)
+	}
 }
 
 func TestCRT1_CSOSN202_ComSTSemCredito(t *testing.T) {
