@@ -98,6 +98,7 @@ func TestXSD_VariantesDoBuilder(t *testing.T) {
 		"nfce":          entradaNFCe(),
 		"nfce_csosn101": com(entradaNFCe(), item("SN101", builder.EntradaICMS{CSOSN: "101", Aliq: 2.5}, "5102")),
 		"nfce_csosn201": com(entradaNFCe(), item("SN201", builder.EntradaICMS{CSOSN: "201", Aliq: 2.5, PMVAST: 40, AliqST: 18}, "5102")),
+		"nfce_csosn202": com(entradaNFCe(), item("SN202", builder.EntradaICMS{CSOSN: "202", PMVAST: 40, AliqST: 18}, "5102")),
 		"nfce_csosn500": com(entradaNFCe(), item("SN500", builder.EntradaICMS{CSOSN: "500", VBCSTRet: 9, PST: 19, VICMSSTRet: 1.71}, "5405")),
 	}
 	for nome, entrada := range casos {
