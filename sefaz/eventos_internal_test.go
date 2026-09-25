@@ -33,3 +33,11 @@ func TestAgoraBrasiliaTemOffsetReal(t *testing.T) {
 		t.Errorf("dhEvento %q está a %v do agora real", got, delta)
 	}
 }
+
+// Filial assinando com o certificado da matriz: o autor do evento é o emitente da chave, não o do certificado.
+func TestCNPJAutorEventoUsaOEmitenteDaChave(t *testing.T) {
+	chave := "52260934152609000206550010000009051000000905"
+	if got := cnpjAutorEvento(chave, nil); got != "34152609000206" {
+		t.Fatalf("cnpj = %q, esperava 34152609000206", got)
+	}
+}

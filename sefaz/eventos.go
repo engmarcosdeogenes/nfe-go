@@ -43,6 +43,16 @@ type RetornoConsultaProtocolo struct {
 	XMLNFeProc []byte
 }
 
+// cnpjAutorEvento devolve o CNPJ que vai no <CNPJ> do evento do emitente (cancelamento, CC-e): o do
+// emitente da nota, que são os dígitos 7 a 20 da chave. Não pode ser o do certificado, porque uma
+// filial pode assinar com o certificado da matriz (mesmo CNPJ-base, 14 dígitos diferentes).
+func cnpjAutorEvento(chave string, c *cert.Certificado) string {
+	if len(chave) == 44 {
+		return chave[6:20]
+	}
+	return c.CNPJ()
+}
+
 // ConsultarProtocolo consulta a situação de uma NF-e pela chave de acesso (44 dígitos).
 func (cl *Cliente) ConsultarProtocolo(ctx context.Context, chave string) (*RetornoConsultaProtocolo, error) {
 	soapBody := fmt.Sprintf(
@@ -143,7 +153,7 @@ func (cl *Cliente) Cancelar(ctx context.Context, chave, nProt, justificativa str
 			`</detEvento>`+
 			`</infEvento>`+
 			`</evento>`,
-		idEvento, cl.cuf, string(cl.amb), c.CNPJ(),
+		idEvento, cl.cuf, string(cl.amb), cnpjAutorEvento(chave, c),
 		chave, dhEvento, nProt, justificativa,
 	)
 
@@ -264,7 +274,7 @@ func CartaCorrecao(c *cert.Certificado, chNFe, xCorrecao, xCondUso string, nSeqE
 			`</detEvento>`+
 			`</infEvento>`+
 			`</evento>`,
-		idEvento, cuf, string(amb), c.CNPJ(),
+		idEvento, cuf, string(amb), cnpjAutorEvento(chNFe, c),
 		chNFe, dhEvento, nSeqEvento, xCorrecao, xCondUso,
 	)
 
