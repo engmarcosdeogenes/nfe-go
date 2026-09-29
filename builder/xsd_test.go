@@ -78,6 +78,8 @@ func TestXSD_VariantesDoBuilder(t *testing.T) {
 	destCPF.Dest.CNPJ, destCPF.Dest.CPF, destCPF.Dest.IndIEDest, destCPF.Dest.IE = "", "12345678901", "9", ""
 	cartao := entradaExemplo()
 	cartao.Pagamento = []builder.EntradaPagamento{{Forma: "03", Valor: 200, TBand: "01", CNPJCredenciadora: "11222333000181"}}
+	cnpjAlfa := entradaExemplo()
+	cnpjAlfa.Emitente.CNPJ, cnpjAlfa.Dest.CNPJ = "12.abc.345/01de-35", "12ABC34501DE35"
 	interestadual := com(entradaCRT3(), difal)
 	interestadual.Dest.End.UF = "SP"
 	interestadual.Dest.IndIEDest = "9"
@@ -95,6 +97,7 @@ func TestXSD_VariantesDoBuilder(t *testing.T) {
 		"dest_isento":   destISENTO,
 		"dest_cpf":      destCPF,
 		"pagto_cartao":  cartao,
+		"cnpj_alfanum":  cnpjAlfa,
 		"nfce":          entradaNFCe(),
 		"nfce_csosn101": com(entradaNFCe(), item("SN101", builder.EntradaICMS{CSOSN: "101", Aliq: 2.5}, "5102")),
 		"nfce_csosn201": com(entradaNFCe(), item("SN201", builder.EntradaICMS{CSOSN: "201", Aliq: 2.5, PMVAST: 40, AliqST: 18}, "5102")),

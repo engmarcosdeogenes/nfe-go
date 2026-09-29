@@ -142,6 +142,18 @@ func TestConsultarCadastro_IEUsaCampoIE(t *testing.T) {
 	}
 }
 
+func TestConsultarCadastro_CNPJAlfanumerico(t *testing.T) {
+	mock := &cadastroTransport{resposta: envelopeConsCad(retConsCadHabilitado)}
+	cl := sefaz.NovoClienteTransporte("52", sefaz.Homologacao, mock)
+
+	if _, err := cl.ConsultarCadastro(context.Background(), "GO", "12.abc.345/01de-35"); err != nil {
+		t.Fatalf("ConsultarCadastro: %v", err)
+	}
+	if enviado := string(mock.corpoEnviado); !strings.Contains(enviado, "<CNPJ>12ABC34501DE35</CNPJ>") {
+		t.Errorf("esperava CNPJ alfanumérico em maiúsculas: %s", enviado)
+	}
+}
+
 // Resposta com o grupo <ender>, que a SEFAZ preenche em parte das UFs — é de
 // onde sai o endereço (e o código IBGE do município) pra preencher cadastro
 // de cliente sem digitação.

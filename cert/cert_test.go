@@ -84,6 +84,28 @@ func TestCNPJ_FallbackParaCN(t *testing.T) {
 	}
 }
 
+func TestCNPJ_FallbackParaCNAlfanumerico(t *testing.T) {
+	c := &cert.Certificado{
+		Cert: &x509.Certificate{
+			Subject: pkix.Name{CommonName: "EMPRESA NOVA LTDA:12ABC34501DE35"},
+		},
+	}
+	if got := c.CNPJ(); got != "12ABC34501DE35" {
+		t.Errorf("CNPJ() = %q, esperava %q", got, "12ABC34501DE35")
+	}
+}
+
+func TestCNPJ_SerialNumberComPrefixo(t *testing.T) {
+	c := &cert.Certificado{
+		Cert: &x509.Certificate{
+			Subject: pkix.Name{SerialNumber: "CNPJ:12abc34501de35"},
+		},
+	}
+	if got := c.CNPJ(); got != "12ABC34501DE35" {
+		t.Errorf("CNPJ() = %q, esperava %q", got, "12ABC34501DE35")
+	}
+}
+
 func TestCNPJ_SemSerialNumberNemCNPJNoCN(t *testing.T) {
 	c := &cert.Certificado{
 		Cert: &x509.Certificate{

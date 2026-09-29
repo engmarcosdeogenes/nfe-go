@@ -93,13 +93,15 @@ func gerarCNF() uint32 {
 	return binary.BigEndian.Uint32(b[:])%99999999 + 1
 }
 
-// calcularDV calcula o dígito verificador (módulo 11) da chave de 43 dígitos.
+// calcularDV calcula o dígito verificador (módulo 11) da chave de 43 posições.
+// Cada caractere vale (ASCII − 48), regra da NT 2025.001 (CNPJ alfanumérico):
+// '0'..'9' = 0..9 (igual ao numérico), 'A' = 17 ... 'Z' = 42.
 func calcularDV(base43 string) string {
 	pesos := []int{2, 3, 4, 5, 6, 7, 8, 9}
 	soma := 0
 	j := 0
 	for i := len(base43) - 1; i >= 0; i-- {
-		d, _ := strconv.Atoi(string(base43[i]))
+		d := int(base43[i]) - '0'
 		soma += d * pesos[j%8]
 		j++
 	}
@@ -110,22 +112,17 @@ func calcularDV(base43 string) string {
 	return strconv.Itoa(11 - resto)
 }
 
-// FormatarCNPJ remove pontuação de um CNPJ e retorna só os 14 dígitos.
+// FormatarCNPJ remove pontuação e devolve as 14 posições em maiúsculas.
+// Mantém letras: CNPJ alfanumérico (IN RFB 2.229/2024, TCnpj =
+// "[0-9A-Z]{12}[0-9]{2}"); o numérico antigo sai igual.
 func FormatarCNPJ(cnpj string) string {
-	out := make([]byte, 0, 14)
-	for _, c := range cnpj {
-		if c >= '0' && c <= '9' {
-			out = append(out, byte(c))
-		}
-	}
-	return string(out)
+	return strings.ToUpper(FormatarIE(cnpj))
 }
 
-// FormatarCPF remove pontuação e retorna só os 11 dígitos. Mesmo filtro do
-// CNPJ, com nome próprio porque o campo é outro: o XSD é estrito (TCpf =
-// "[0-9]{11}") e o usuário digita "123.456.789-00", a forma natural.
+// FormatarCPF remove pontuação e retorna só os 11 dígitos. O XSD é estrito
+// (TCpf = "[0-9]{11}") e o usuário digita "123.456.789-00", a forma natural.
 func FormatarCPF(cpf string) string {
-	return FormatarCNPJ(cpf)
+	return FormatarCEP(cpf)
 }
 
 // FormatarIE remove pontuação (mantém dígitos e letras -- cobre "ISENTO"

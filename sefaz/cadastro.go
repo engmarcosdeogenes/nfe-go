@@ -96,7 +96,7 @@ func (c CadastroContribuinte) PodeEmitirNFe() bool {
 // pode ser chamado em produção sem efeito tributário.
 func (cl *Cliente) ConsultarCadastro(ctx context.Context, uf, documento string) (*RetornoConsultaCadastro, error) {
 	uf = strings.ToUpper(strings.TrimSpace(uf))
-	doc := apenasDigitos(documento)
+	doc := strings.ToUpper(soAlfaNum(documento))
 	if doc == "" {
 		return nil, fmt.Errorf("sefaz: consultar cadastro: documento vazio")
 	}
@@ -204,14 +204,4 @@ func (cl *Cliente) ConsultarCadastro(ctx context.Context, uf, documento string) 
 		})
 	}
 	return saida, nil
-}
-
-func apenasDigitos(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if r >= '0' && r <= '9' {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
