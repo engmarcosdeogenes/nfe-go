@@ -68,6 +68,8 @@ func TestXSD_VariantesDoBuilder(t *testing.T) {
 	ibs.IBSCBS = &builder.EntradaIBSCBS{CST: "000", ClassTrib: "000001", AliqIBSUF: 0.1, AliqCBS: 0.9}
 	ipi := item("IPI", builder.EntradaICMS{CST: "00", Aliq: 12}, "5101")
 	ipi.IPI = &builder.EntradaIPI{CEnq: "999", CST: "50", Aliq: 5}
+	ipiSemCEnq := item("IPI2", builder.EntradaICMS{CST: "00", Aliq: 12}, "5101")
+	ipiSemCEnq.IPI = &builder.EntradaIPI{CST: "50", Aliq: 5} // cEnq vazio vira 999
 	difal := item("DIFAL", builder.EntradaICMS{CST: "00", Aliq: 7}, "6108")
 	difal.ICMSUFDest = &builder.EntradaICMSUFDest{AliqInterna: 18, AliqInterestadual: 7, AliqFCP: 2}
 
@@ -85,24 +87,25 @@ func TestXSD_VariantesDoBuilder(t *testing.T) {
 	interestadual.Dest.IndIEDest = "9"
 
 	casos := map[string]builder.EntradaNFe{
-		"exemplo":       entradaExemplo(),
-		"crt3":          entradaCRT3ComItemPadrao(),
-		"crt3_ibscbs":   com(entradaCRT3(), ibs),
-		"crt3_ipi":      com(entradaCRT3(), ipi),
-		"crt3_cst10_st": com(entradaCRT3(), item("ST", builder.EntradaICMS{CST: "10", Aliq: 12, PMVAST: 40, AliqST: 18}, "6401")),
-		"crt3_cst20":    com(entradaCRT3(), item("RED", builder.EntradaICMS{CST: "20", Aliq: 12, PRedBC: 10}, "5102")),
-		"crt3_cst40":    com(entradaCRT3(), item("ISE", builder.EntradaICMS{CST: "40"}, "5102")),
-		"crt3_cst60":    com(entradaCRT3(), item("ST60", builder.EntradaICMS{CST: "60", VBCSTRet: 700, PST: 18, VICMSSTRet: 126}, "5405")),
-		"crt3_difal":    interestadual,
-		"dest_isento":   destISENTO,
-		"dest_cpf":      destCPF,
-		"pagto_cartao":  cartao,
-		"cnpj_alfanum":  cnpjAlfa,
-		"nfce":          entradaNFCe(),
-		"nfce_csosn101": com(entradaNFCe(), item("SN101", builder.EntradaICMS{CSOSN: "101", Aliq: 2.5}, "5102")),
-		"nfce_csosn201": com(entradaNFCe(), item("SN201", builder.EntradaICMS{CSOSN: "201", Aliq: 2.5, PMVAST: 40, AliqST: 18}, "5102")),
-		"nfce_csosn202": com(entradaNFCe(), item("SN202", builder.EntradaICMS{CSOSN: "202", PMVAST: 40, AliqST: 18}, "5102")),
-		"nfce_csosn500": com(entradaNFCe(), item("SN500", builder.EntradaICMS{CSOSN: "500", VBCSTRet: 9, PST: 19, VICMSSTRet: 1.71}, "5405")),
+		"exemplo":           entradaExemplo(),
+		"crt3":              entradaCRT3ComItemPadrao(),
+		"crt3_ibscbs":       com(entradaCRT3(), ibs),
+		"crt3_ipi":          com(entradaCRT3(), ipi),
+		"crt3_ipi_sem_cenq": com(entradaCRT3(), ipiSemCEnq),
+		"crt3_cst10_st":     com(entradaCRT3(), item("ST", builder.EntradaICMS{CST: "10", Aliq: 12, PMVAST: 40, AliqST: 18}, "6401")),
+		"crt3_cst20":        com(entradaCRT3(), item("RED", builder.EntradaICMS{CST: "20", Aliq: 12, PRedBC: 10}, "5102")),
+		"crt3_cst40":        com(entradaCRT3(), item("ISE", builder.EntradaICMS{CST: "40"}, "5102")),
+		"crt3_cst60":        com(entradaCRT3(), item("ST60", builder.EntradaICMS{CST: "60", VBCSTRet: 700, PST: 18, VICMSSTRet: 126}, "5405")),
+		"crt3_difal":        interestadual,
+		"dest_isento":       destISENTO,
+		"dest_cpf":          destCPF,
+		"pagto_cartao":      cartao,
+		"cnpj_alfanum":      cnpjAlfa,
+		"nfce":              entradaNFCe(),
+		"nfce_csosn101":     com(entradaNFCe(), item("SN101", builder.EntradaICMS{CSOSN: "101", Aliq: 2.5}, "5102")),
+		"nfce_csosn201":     com(entradaNFCe(), item("SN201", builder.EntradaICMS{CSOSN: "201", Aliq: 2.5, PMVAST: 40, AliqST: 18}, "5102")),
+		"nfce_csosn202":     com(entradaNFCe(), item("SN202", builder.EntradaICMS{CSOSN: "202", PMVAST: 40, AliqST: 18}, "5102")),
+		"nfce_csosn500":     com(entradaNFCe(), item("SN500", builder.EntradaICMS{CSOSN: "500", VBCSTRet: 9, PST: 19, VICMSSTRet: 1.71}, "5405")),
 	}
 	for nome, entrada := range casos {
 		t.Run(nome, func(t *testing.T) {

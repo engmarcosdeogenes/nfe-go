@@ -1115,7 +1115,7 @@ func TestDIFAL_GeraGrupoICMSUFDest(t *testing.T) {
 		t.Fatalf("Build com DIFAL: %v", err)
 	}
 	xmlStr := string(xmlBytes)
-	// vICMSUFRemet = 1000*7% = 70.00; vICMSUFDest = 1000*(18-7)% = 110.00; vFCPUFDest = 1000*2% = 20.00
+	// vICMSUFRemet = 0 (partilha 100% destino, cStat 816); vICMSUFDest = 1000*(18-7)% = 110.00; vFCPUFDest = 1000*2% = 20.00
 	for _, esperado := range []string{
 		"<vBCUFDest>1000.00</vBCUFDest>",
 		"<vBCFCPUFDest>1000.00</vBCFCPUFDest>",
@@ -1125,7 +1125,7 @@ func TestDIFAL_GeraGrupoICMSUFDest(t *testing.T) {
 		"<pICMSInterPart>100</pICMSInterPart>",
 		"<vFCPUFDest>20.00</vFCPUFDest>",
 		"<vICMSUFDest>110.00</vICMSUFDest>",
-		"<vICMSUFRemet>70.00</vICMSUFRemet>",
+		"<vICMSUFRemet>0.00</vICMSUFRemet>",
 	} {
 		if !strings.Contains(xmlStr, esperado) {
 			t.Errorf("esperava %q no XML, corpo: %s", esperado, xmlStr)

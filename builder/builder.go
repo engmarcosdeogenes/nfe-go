@@ -584,6 +584,7 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	vICMSUFRemetTotal := 0.0
 	vFCPUFDestTotal := 0.0
 	temIBSCBS := false
+	temDIFAL := false
 
 	for i, item := range e.Itens {
 		vProd := item.Quantidade * item.VUnitario
@@ -604,6 +605,7 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 		vICMSUFDestTotal += totItem.vICMSUFDest
 		vICMSUFRemetTotal += totItem.vICMSUFRemet
 		vFCPUFDestTotal += totItem.vFCPUFDest
+		temDIFAL = temDIFAL || item.ICMSUFDest != nil
 		if item.IBSCBS != nil {
 			temIBSCBS = true
 			vBCIBSCBSTotal += totItem.vBCIBSCBS
@@ -628,7 +630,7 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 				CEAN:     ceanOuSemGTIN(item.CEAN),
 				XProd:    xProd,
 				NCM:      item.NCM,
-				CEST:     item.CEST,
+				CEST:     FormatarCEP(item.CEST), // só dígitos: " 28.004.80" colado dava 225
 				CBenef:   item.CBenef,
 				CFOP:     item.CFOP,
 				UCom:     item.Unidade,
@@ -666,6 +668,10 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	tot.VFCPUFDest = fmtValOmitZero(vFCPUFDestTotal)
 	tot.VICMSUFDest = fmtValOmitZero(vICMSUFDestTotal)
 	tot.VICMSUFRemet = fmtValOmitZero(vICMSUFRemetTotal)
+	if temDIFAL {
+		tot.VICMSUFDest = fmtVal(vICMSUFDestTotal)
+		tot.VICMSUFRemet = fmtVal(vICMSUFRemetTotal) // zero desde 2019, mas presente
+	}
 	tot.VFCP = "0.00"
 	tot.VBCST = fmtVal(vBCSTTotal)
 	tot.VST = fmtVal(vICMSSTTotal)
@@ -913,8 +919,14 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 
 	if item.IPI != nil {
 		vIPI := vProd * item.IPI.Aliq / 100
+		// cEnq é obrigatório no schema; vazio vira 999 ("tributação normal /
+		// outros", tabela de enquadramento) em vez de cStat 225.
+		cEnq := strings.TrimSpace(item.IPI.CEnq)
+		if cEnq == "" {
+			cEnq = "999"
+		}
 		imp.IPI = &IPI{
-			CEnq:    item.IPI.CEnq,
+			CEnq:    cEnq,
 			IPITrib: &IPITrib{CST: item.IPI.CST, VBC: fmtVal(vProd), PIPI: fmtVal(item.IPI.Aliq), VIPI: fmtVal(vIPI)},
 		}
 		tot.vIPI = vIPI
@@ -923,7 +935,9 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 	if item.ICMSUFDest != nil {
 		ud := item.ICMSUFDest
 		vBCUFDest := vProd
-		vICMSUFRemet := vBCUFDest * ud.AliqInterestadual / 100
+		// Partilha 100% pro destino desde 2019: a parte da UF de origem é zero
+		// (MOC NA15). Calcular pICMSInter aqui dava cStat 816.
+		vICMSUFRemet := 0.0
 		vICMSUFDest := vBCUFDest * (ud.AliqInterna - ud.AliqInterestadual) / 100 // pICMSInterPart=100% desde 2019
 		if vICMSUFDest < 0 {
 			vICMSUFDest = 0
