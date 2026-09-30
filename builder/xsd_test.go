@@ -61,6 +61,10 @@ func TestXSD_VariantesDoBuilder(t *testing.T) {
 	}
 	com := func(base builder.EntradaNFe, it builder.EntradaItem) builder.EntradaNFe {
 		base.Itens = []builder.EntradaItem{it}
+		if base.Mod == builder.ModeloNFCe {
+			// Dinheiro acima do total: também cobre o vTroco contra o XSD.
+			base.Pagamento = []builder.EntradaPagamento{{Forma: "01", Valor: 1000}}
+		}
 		return base
 	}
 

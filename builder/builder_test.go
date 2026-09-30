@@ -1789,6 +1789,7 @@ func TestCRT1_CSOSN101_PermiteCredito(t *testing.T) {
 		Quantidade: 2, VUnitario: 325.00,
 		ICMS: builder.EntradaICMS{CSOSN: "101", Aliq: 2.5},
 	}}
+	e.Pagamento = []builder.EntradaPagamento{{Forma: "01", Valor: 650}}
 
 	xmlBytes, _, err := builder.Build(e)
 	if err != nil {
@@ -1946,5 +1947,46 @@ func TestNaoContribuinteForcaConsumidorFinal(t *testing.T) {
 	}
 	if nfe.InfNFe.Ide.IndFinal != "0" {
 		t.Errorf("indFinal = %q, esperado 0 (escolha do emitente preservada)", nfe.InfNFe.Ide.IndFinal)
+	}
+}
+
+// NFC-e: pagamento fecha com o total. Pago a mais vira troco sozinho; pago
+// a menos é recusado (cStat 865); cartão sem bandeira leva o grupo card
+// mesmo assim (cStat 391); indFinal é sempre 1.
+func TestNFCe_PagamentoETroco(t *testing.T) {
+	e := entradaNFCe() // 2 x 25,00 = 50,00
+	e.Pagamento = []builder.EntradaPagamento{{Forma: "01", Valor: 60}}
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !strings.Contains(string(xmlBytes), "<vTroco>10.00</vTroco>") {
+		t.Errorf("esperava vTroco 10.00")
+	}
+	if !strings.Contains(string(xmlBytes), "<indFinal>1</indFinal>") {
+		t.Errorf("NFC-e deveria sair com indFinal 1")
+	}
+
+	e.Pagamento = []builder.EntradaPagamento{{Forma: "01", Valor: 40}}
+	if _, _, err := builder.Build(e); err == nil || !strings.Contains(err.Error(), "cobrir o total") {
+		t.Errorf("pago a menos deveria ser recusado, veio %v", err)
+	}
+	e.Pagamento = nil // vira tPag 90 com 0,00
+	if _, _, err := builder.Build(e); err == nil {
+		t.Errorf("NFC-e sem pagamento deveria ser recusada")
+	}
+
+	e.Pagamento = []builder.EntradaPagamento{{Forma: "04", Valor: 50}}
+	xmlBytes, _, err = builder.Build(e)
+	if err != nil {
+		t.Fatalf("Build débito: %v", err)
+	}
+	if !strings.Contains(string(xmlBytes), "<card><tpIntegra>2</tpIntegra></card>") {
+		t.Errorf("débito sem bandeira deveria levar o grupo card")
+	}
+
+	e.IndPres = "2"
+	if _, _, err := builder.Build(e); err == nil || !strings.Contains(err.Error(), "presencial") {
+		t.Errorf("NFC-e pela internet deveria ser recusada, veio %v", err)
 	}
 }

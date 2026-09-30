@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
+	"math"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -360,8 +362,8 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 	// final"). Não é escolha do emitente, então o indFinal acompanha em vez
 	// de virar rejeição.
 	indFinal := e.IndFinal
-	if dest != nil && dest.IndIEDest == "9" {
-		indFinal = "1"
+	if (dest != nil && dest.IndIEDest == "9") || mod == ModeloNFCe {
+		indFinal = "1" // NFC-e é sempre venda a consumidor final
 	}
 	finNFe := e.FinNFe
 	if finNFe == "" {
@@ -442,6 +444,10 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 				}
 			}(),
 		},
+	}
+
+	if err := fecharPagamento(&nfe.InfNFe.Pag, nfe.InfNFe.Total.ICMSTot.VNF, mod); err != nil {
+		return NFe{}, err
 	}
 
 	// tpEmis=9 (contingência offline): o QR Code precisa do DigestValue da
@@ -1091,7 +1097,9 @@ func montarPagamento(ps []EntradaPagamento) Pagamento {
 			xPag = "Outros" // xPag é obrigatório quando tPag=99
 		}
 		var card *Card
-		if p.TBand != "" {
+		// Crédito/débito sem o grupo card: NFC-e volta cStat 391. Sem
+		// bandeira, basta o tpIntegra (2 = maquininha não integrada).
+		if p.TBand != "" || p.Forma == "03" || p.Forma == "04" {
 			tpIntegra := p.TpIntegra
 			if tpIntegra == "" {
 				tpIntegra = "2"
@@ -1117,6 +1125,26 @@ func montarPagamento(ps []EntradaPagamento) Pagamento {
 	return pag
 }
 
+// fecharPagamento confere os pagamentos contra o total da nota. Pago a mais
+// tem resposta única: a diferença é troco (sem vTroco a SEFAZ recusa). Pago
+// a menos na NFC-e é recusado aqui (cStat 865), dizendo os dois valores.
+func fecharPagamento(pag *Pagamento, vNFStr, mod string) error {
+	vNF, _ := strconv.ParseFloat(vNFStr, 64)
+	soma := 0.0
+	for _, d := range pag.DetPag {
+		v, _ := strconv.ParseFloat(d.VPag, 64)
+		soma += v
+	}
+	centavos := func(v float64) int64 { return int64(math.Round(v * 100)) }
+	switch {
+	case centavos(soma) > centavos(vNF) && centavos(vNF) > 0:
+		pag.VTroco = fmtVal(float64(centavos(soma)-centavos(vNF)) / 100)
+	case mod == ModeloNFCe && centavos(soma) < centavos(vNF):
+		return fmt.Errorf("pagamentos somam R$ %s e a nota é de R$ %s — na NFC-e o pagamento tem que cobrir o total (informe a forma de pagamento e o valor recebido)", fmtVal(soma), fmtVal(vNF))
+	}
+	return nil
+}
+
 // ── Validação mínima ─────────────────────────────────────────────────────────
 
 func validarEntrada(e EntradaNFe) error {
@@ -1139,6 +1167,9 @@ func validarEntrada(e EntradaNFe) error {
 	}
 	if e.Mod == ModeloNFCe && e.Dest.CNPJ != "" {
 		return fmt.Errorf("NFC-e (mod=65) não aceita destinatário com CNPJ — use CPF ou deixe o destinatário sem identificação")
+	}
+	if e.Mod == ModeloNFCe && e.IndPres != "" && e.IndPres != "1" && e.IndPres != "4" {
+		return fmt.Errorf("NFC-e só pode ser venda presencial (1) ou entrega em domicílio (4), veio indPres=%s", e.IndPres)
 	}
 	if e.Mod == ModeloNFCe && e.CSC == "" {
 		return fmt.Errorf("NFC-e (mod=65) exige CSC (Código de Segurança do Contribuinte) fornecido pela SEFAZ estadual")
