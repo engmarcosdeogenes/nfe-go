@@ -174,6 +174,27 @@ func TestTotaisComDesconto(t *testing.T) {
 // IE formatada como vem em documento oficial ("20.028.578-5") violava o
 // datatype TIe do schema, que não aceita pontuação -- CNPJ e CEP já eram
 // limpos, IE não era.
+// TestTextoSaiSemEspacoNasPontas: "RUA X " (espaço no fim, digitado na tela)
+// derrubava a nota inteira com cStat 225 — o pattern do XSD não aceita.
+func TestTextoSaiSemEspacoNasPontas(t *testing.T) {
+	entrada := entradaExemplo()
+	entrada.Dest.Nome = " CLIENTE INDUSTRIA SA "
+	entrada.Dest.End.Logradouro = "Av. do Aco "
+	entrada.Dest.End.Bairro = "Centro	"
+	entrada.Dest.End.Complemento = "   "
+	entrada.Itens[0].Nome = entrada.Itens[0].Nome + " "
+
+	xmlBytes, _, err := builder.Build(entrada)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, ruim := range []string{"<xNome> ", " </xNome>", "Aco </xLgr>", "Centro	", "<xCpl>", " </xProd>"} {
+		if strings.Contains(string(xmlBytes), ruim) {
+			t.Errorf("XML ainda contém %q", ruim)
+		}
+	}
+}
+
 func TestIESaiSemPontuacao(t *testing.T) {
 	entrada := entradaExemplo()
 	entrada.Emitente.IE = "20.028.578-5"
@@ -540,6 +561,26 @@ func TestPISCofins_OverrideCST(t *testing.T) {
 	tot := nfe.InfNFe.Total.ICMSTot
 	if tot.VPIS != "0.00" || tot.VCOFINS != "0.00" {
 		t.Errorf("CST 04 não deveria gerar vPIS/vCOFINS, veio vPIS=%s vCOFINS=%s", tot.VPIS, tot.VCOFINS)
+	}
+}
+
+// TestPISCofins_CSTInvalidoBarrado: "0" digitado no CST foi pra SEFAZ e
+// voltou cStat 225 sem nome de campo. Agora o Build recusa dizendo o campo;
+// um dígito só ("1") tem leitura única e vira "01".
+func TestPISCofins_CSTInvalidoBarrado(t *testing.T) {
+	e := entradaCRT3()
+	e.Itens[0].PISCofins = builder.EntradaPISCofins{CST: "0", AliqPIS: 0.65, AliqCOFINS: 3}
+	if _, _, err := builder.Build(e); err == nil || !strings.Contains(err.Error(), "CST de PIS/COFINS inválido") {
+		t.Fatalf("CST 0 deveria ser barrado, veio err=%v", err)
+	}
+
+	e.Itens[0].PISCofins.CST = "1"
+	xmlBytes, _, err := builder.Build(e)
+	if err != nil {
+		t.Fatalf("CST 1 deveria virar 01: %v", err)
+	}
+	if !strings.Contains(string(xmlBytes), "<PISAliq><CST>01</CST>") {
+		t.Errorf("esperava PISAliq CST 01")
 	}
 }
 

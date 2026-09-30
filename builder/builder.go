@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -214,10 +215,37 @@ type EntradaPagamento struct {
 	CAut              string // código de autorização da transação, se disponível
 }
 
+// aparar tira espaço (e quebra de linha/tab) das pontas de toda string da
+// entrada. O XSD da SEFAZ recusa qualquer texto que comece ou termine com
+// espaço (cStat 225), e esse espaço sempre vem de digitação ou cópia — não
+// há campo em que ele signifique algo. Fica aqui, antes de validar e montar,
+// pra cobrir campo novo sem ninguém lembrar de tratar.
+func aparar(v reflect.Value) {
+	switch v.Kind() {
+	case reflect.String:
+		if v.CanSet() {
+			v.SetString(strings.TrimSpace(v.String()))
+		}
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			aparar(v.Field(i))
+		}
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			aparar(v.Index(i))
+		}
+	case reflect.Pointer:
+		if !v.IsNil() {
+			aparar(v.Elem())
+		}
+	}
+}
+
 // ── Build ─────────────────────────────────────────────────────────────────────
 
 // Build converte uma EntradaNFe em []byte do XML pronto para assinar.
 func Build(e EntradaNFe) ([]byte, ChaveAcesso, error) {
+	aparar(reflect.ValueOf(&e).Elem())
 	if err := validarEntrada(e); err != nil {
 		return nil, ChaveAcesso{}, fmt.Errorf("builder: %w", err)
 	}
@@ -716,19 +744,42 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 // SEFAZ recusar o lote inteiro com cStat 225, "Falha no Schema XML".
 var cstPISNaoTributado = map[string]bool{"04": true, "05": true, "06": true, "07": true, "08": true, "09": true}
 
+// cstPISValido é a tabela de CST de PIS/COFINS que o builder sabe montar.
+// Fora dela o XML sai com cStat 225 sem nome de campo ("0" digitado derrubou
+// notas reais). 03 (alíquota por quantidade, PISQtde) não é montado.
+var cstPISValido = func() map[string]bool {
+	m := map[string]bool{"01": true, "02": true, "49": true, "98": true, "99": true}
+	for c := range cstPISNaoTributado {
+		m[c] = true
+	}
+	for _, faixa := range [][2]int{{50, 56}, {60, 67}, {70, 75}} {
+		for n := faixa[0]; n <= faixa[1]; n++ {
+			m[fmt.Sprint(n)] = true
+		}
+	}
+	return m
+}()
+
 // montarPISCOFINS resolve PIS/COFINS do item. CST vazio aplica defaultCST
 // (comportamento de antes desse override existir: "07" isento pro Simples,
 // "01"@0.65/3.00 pro Regime Normal). CSTs 01/02 levam vBC+alíquota; 04-09 são
 // não-tributação (sem base nem valor); o resto vai em "outras operações",
 // onde vBC e alíquota são obrigatórios pelo schema — zerados quando não há
 // tributo, que é o caso do Simples com CST 49.
-func montarPISCOFINS(p EntradaPISCofins, vProd float64, defaultCST string) (PIS, COFINS, float64, float64) {
+func montarPISCOFINS(p EntradaPISCofins, vProd float64, defaultCST string) (PIS, COFINS, float64, float64, error) {
 	cst, aliqPIS, aliqCOFINS := p.CST, p.AliqPIS, p.AliqCOFINS
 	if cst == "" {
 		cst = defaultCST
 		if cst == "01" {
 			aliqPIS, aliqCOFINS = 0.65, 3.00
 		}
+	}
+	// "1" digitado no lugar de "01" só tem uma leitura: completa o zero.
+	if len(cst) == 1 {
+		cst = "0" + cst
+	}
+	if !cstPISValido[cst] {
+		return PIS{}, COFINS{}, 0, 0, fmt.Errorf("CST de PIS/COFINS inválido (%q): use um código de 2 dígitos da tabela (ex.: 01 tributado, 07 isento, 49 Simples Nacional)", p.CST)
 	}
 
 	switch cst {
@@ -737,10 +788,10 @@ func montarPISCOFINS(p EntradaPISCofins, vProd float64, defaultCST string) (PIS,
 		vCOFINS := vProd * aliqCOFINS / 100
 		return PIS{PISAliq: &PISAliq{CST: cst, VBC: fmtVal(vProd), PPIS: fmtVal(aliqPIS), VPIS: fmtVal(vPIS)}},
 			COFINS{COFINSAliq: &COFINSAliq{CST: cst, VBC: fmtVal(vProd), PCOFINS: fmtVal(aliqCOFINS), VCOFINS: fmtVal(vCOFINS)}},
-			vPIS, vCOFINS
+			vPIS, vCOFINS, nil
 	default:
 		if cstPISNaoTributado[cst] {
-			return PIS{PISNt: &PISNt{CST: cst}}, COFINS{COFINSNt: &COFINSNt{CST: cst}}, 0, 0
+			return PIS{PISNt: &PISNt{CST: cst}}, COFINS{COFINSNt: &COFINSNt{CST: cst}}, 0, 0, nil
 		}
 		// Outras operações (49, 50-56, 60-67, 70-75, 98, 99...): o grupo exige
 		// vBC e alíquota. Sem alíquota informada sai tudo zero, que é como o
@@ -753,7 +804,7 @@ func montarPISCOFINS(p EntradaPISCofins, vProd float64, defaultCST string) (PIS,
 		vCOFINS := vBC * aliqCOFINS / 100
 		return PIS{PISOutr: &PISOutr{CST: cst, VBC: fmtVal(vBC), PPIS: fmtVal(aliqPIS), VPIS: fmtVal(vPIS)}},
 			COFINS{COFINSOutr: &COFINSOutr{CST: cst, VBC: fmtVal(vBC), PCOFINS: fmtVal(aliqCOFINS), VCOFINS: fmtVal(vCOFINS)}},
-			vPIS, vCOFINS
+			vPIS, vCOFINS, nil
 	}
 }
 
@@ -847,7 +898,10 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 			return Imposto{}, totaisItem{}, fmt.Errorf("builder: CSOSN %q ainda não suportado (item %q)", csosn, item.CProd)
 		}
 		imp.ICMS = icms
-		pis, cofins, vPIS, vCOFINS := montarPISCOFINS(item.PISCofins, vProd, "07")
+		pis, cofins, vPIS, vCOFINS, err := montarPISCOFINS(item.PISCofins, vProd, "07")
+		if err != nil {
+			return Imposto{}, totaisItem{}, fmt.Errorf("builder: item %q: %w", item.CProd, err)
+		}
 		imp.PIS, imp.COFINS = pis, cofins
 		tot.vPIS, tot.vCOFINS = vPIS, vCOFINS
 		return imp, tot, nil
@@ -913,7 +967,10 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 	}
 
 	imp.ICMS = icms
-	pis, cofins, vPIS, vCOFINS := montarPISCOFINS(item.PISCofins, vProd, "01")
+	pis, cofins, vPIS, vCOFINS, err := montarPISCOFINS(item.PISCofins, vProd, "01")
+	if err != nil {
+		return Imposto{}, totaisItem{}, fmt.Errorf("builder: item %q: %w", item.CProd, err)
+	}
 	imp.PIS, imp.COFINS = pis, cofins
 	tot.vPIS, tot.vCOFINS = vPIS, vCOFINS
 
