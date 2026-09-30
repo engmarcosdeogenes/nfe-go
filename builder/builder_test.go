@@ -928,8 +928,9 @@ func TestCRT1_CSOSN500_STRetido(t *testing.T) {
 	}
 }
 
-func TestCRT3_CST_Desconhecido_FallbackICMS40(t *testing.T) {
-	// CST não mapeado deve cair no default → ICMS40/CST=40
+// CST não montado pelo builder (ex.: 99) caía calado em ICMS40/CST=40 —
+// nota autorizada com imposto errado. Agora é recusado; "0" vira "00".
+func TestCRT3_CST_Desconhecido_Recusado(t *testing.T) {
 	e := entradaCRT3()
 	e.Itens = []builder.EntradaItem{{
 		CProd: "P005", CEAN: "SEM GTIN", Nome: "PRODUTO CST DESCONHECIDO",
@@ -937,16 +938,50 @@ func TestCRT3_CST_Desconhecido_FallbackICMS40(t *testing.T) {
 		Quantidade: 1, VUnitario: 100.00,
 		ICMS: builder.EntradaICMS{CST: "99"},
 	}}
+	if _, _, err := builder.Build(e); err == nil || !strings.Contains(err.Error(), "CST de ICMS") {
+		t.Fatalf("CST 99 deveria ser recusado, veio %v", err)
+	}
+	e.Itens[0].ICMS = builder.EntradaICMS{CST: "0", Aliq: 17}
 	xmlBytes, _, err := builder.Build(e)
 	if err != nil {
-		t.Fatalf("Build: %v", err)
+		t.Fatalf("CST 0 deveria virar 00: %v", err)
 	}
+	if !strings.Contains(string(xmlBytes), "<ICMS00>") {
+		t.Errorf("esperava ICMS00")
+	}
+	e.Itens[0].ICMS = builder.EntradaICMS{CST: "041"}
+	if xmlBytes, _, err = builder.Build(e); err != nil || !strings.Contains(string(xmlBytes), "<CST>41</CST>") {
+		t.Errorf("CST 041 deveria sair como 41: err=%v", err)
+	}
+}
 
-	var nfe builder.NFe
-	xml.Unmarshal(xmlBytes[len(xml.Header):], &nfe)
-
-	if nfe.InfNFe.Det[0].Imposto.ICMS.ICMS40 == nil {
-		t.Error("CST desconhecido deveria cair no ICMS40 (default)")
+// Conferência do XML montado: o que o schema derrubaria com cStat 225 sem
+// nome de campo sai como erro dizendo o campo.
+func TestConferenciaDoXML(t *testing.T) {
+	casos := []struct {
+		nome   string
+		mexer  func(*builder.EntradaNFe)
+		espera string
+	}{
+		{"quebra de linha no infCpl vira espaço", func(e *builder.EntradaNFe) { e.InfCpl = "LINHA 1\nLINHA 2" }, ""},
+		{"travessão do Word vira hífen", func(e *builder.EntradaNFe) { e.Itens[0].Nome = "PARAFUSO – INOX" }, ""},
+		{"emoji é recusado com o campo", func(e *builder.EntradaNFe) { e.Itens[0].Nome = "PARAFUSO 😀" }, "Descrição do produto"},
+		{"descrição acima de 120", func(e *builder.EntradaNFe) { e.Itens[0].Nome = strings.Repeat("A", 121) }, "máximo é 120"},
+		{"país vazio vira Brasil", func(e *builder.EntradaNFe) { e.Dest.End.Pais, e.Dest.End.NomePais = "", "" }, ""},
+	}
+	for _, c := range casos {
+		t.Run(c.nome, func(t *testing.T) {
+			e := entradaExemplo()
+			e.TpAmb = "1" // homologação troca a descrição do 1º item
+			c.mexer(&e)
+			_, _, err := builder.Build(e)
+			if c.espera == "" && err != nil {
+				t.Fatalf("não deveria falhar: %v", err)
+			}
+			if c.espera != "" && (err == nil || !strings.Contains(err.Error(), c.espera)) {
+				t.Fatalf("esperava erro com %q, veio %v", c.espera, err)
+			}
+		})
 	}
 }
 

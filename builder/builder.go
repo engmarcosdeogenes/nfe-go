@@ -215,16 +215,15 @@ type EntradaPagamento struct {
 	CAut              string // código de autorização da transação, se disponível
 }
 
-// aparar tira espaço (e quebra de linha/tab) das pontas de toda string da
-// entrada. O XSD da SEFAZ recusa qualquer texto que comece ou termine com
-// espaço (cStat 225), e esse espaço sempre vem de digitação ou cópia — não
-// há campo em que ele signifique algo. Fica aqui, antes de validar e montar,
-// pra cobrir campo novo sem ninguém lembrar de tratar.
+// aparar normaliza toda string da entrada (ver normalizarTexto): o XSD da
+// SEFAZ recusa texto com espaço nas pontas ou quebra de linha (cStat 225), e
+// isso sempre vem de digitação ou cópia. Fica aqui, antes de validar e
+// montar, pra cobrir campo novo sem ninguém lembrar de tratar.
 func aparar(v reflect.Value) {
 	switch v.Kind() {
 	case reflect.String:
 		if v.CanSet() {
-			v.SetString(strings.TrimSpace(v.String()))
+			v.SetString(normalizarTexto(v.String()))
 		}
 	case reflect.Struct:
 		for i := 0; i < v.NumField(); i++ {
@@ -239,6 +238,15 @@ func aparar(v reflect.Value) {
 			aparar(v.Elem())
 		}
 	}
+}
+
+// paisOuBrasil: país vazio saía como <cPais></cPais> (cStat 225). Endereço
+// sem país informado é nacional — exportação sempre traz o país.
+func paisOuBrasil(v, brasil string) string {
+	if v == "" {
+		return brasil
+	}
+	return v
 }
 
 // ── Build ─────────────────────────────────────────────────────────────────────
@@ -274,6 +282,9 @@ func Build(e EntradaNFe) ([]byte, ChaveAcesso, error) {
 	data, err := xml.Marshal(nfe)
 	if err != nil {
 		return nil, ChaveAcesso{}, fmt.Errorf("builder: marshal: %w", err)
+	}
+	if err := conferirXML(data); err != nil {
+		return nil, ChaveAcesso{}, fmt.Errorf("builder: %w", err)
 	}
 
 	// Adiciona declaração XML e garante sem espaços extras
@@ -528,8 +539,8 @@ func montarEmitente(e EntradaEmitente) Emitente {
 			XMun:    e.End.Municipio,
 			UF:      e.End.UF,
 			CEP:     FormatarCEP(e.End.CEP),
-			CPais:   e.End.Pais,
-			XPais:   e.End.NomePais,
+			CPais:   paisOuBrasil(e.End.Pais, "1058"),
+			XPais:   paisOuBrasil(e.End.NomePais, "Brasil"),
 			Fone:    e.End.Fone,
 		},
 	}
@@ -572,8 +583,8 @@ func montarDest(d EntradaDest) Destinatario {
 			XMun:    d.End.Municipio,
 			UF:      d.End.UF,
 			CEP:     FormatarCEP(d.End.CEP),
-			CPais:   d.End.Pais,
-			XPais:   d.End.NomePais,
+			CPais:   paisOuBrasil(d.End.Pais, "1058"),
+			XPais:   paisOuBrasil(d.End.NomePais, "Brasil"),
 			Fone:    d.End.Fone,
 		}
 	}
@@ -912,6 +923,12 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 	if cst == "" {
 		cst = "00"
 	}
+	switch {
+	case len(cst) == 1: // "0" digitado no lugar de "00": leitura única
+		cst = "0" + cst
+	case len(cst) == 3 && cst[0] == '0': // "060" = origem 0 + CST 60 (formato de tabela de contador)
+		cst = cst[1:]
+	}
 	vProd := item.Quantidade * item.VUnitario
 	tot := totaisItem{}
 
@@ -963,7 +980,9 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 		}
 		tot.vBC, tot.vICMS = vBC, vICMS
 	default:
-		icms.ICMS40 = &ICMS40{Orig: "0", CST: "40"}
+		// Antes caía em ICMS40 calado: CST 90 ou 51 saía como 40 (imposto
+		// errado na nota autorizada). Recusar é o único caminho seguro.
+		return Imposto{}, totaisItem{}, fmt.Errorf("builder: CST de ICMS %q não suportado (item %q) — use 00, 10, 20, 40, 41, 50 ou 60", item.ICMS.CST, item.CProd)
 	}
 
 	imp.ICMS = icms
