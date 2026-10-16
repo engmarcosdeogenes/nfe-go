@@ -70,6 +70,16 @@ var (
 	larguraAdic      = []float64{129.5, 76.2}                        // informações complementares | reservado ao fisco
 )
 
+// Campos da NT 2026.010 (DANFE da reforma tributária). A NT não traz tabela
+// de coordenadas como o Anexo II; as larguras são as do modelo retrato da
+// página 8, medidas no PDF e escaladas para larguraUtil. Cada linha soma
+// larguraUtil.
+var (
+	larguraEmitCRT = []float64{102.9, 102.8}           // §4.2: CRT | tipo de regime de apuração do IBS/CBS
+	larguraRTCL1   = []float64{55.1, 51.1, 51.1, 48.4} // §4.1: CBS | IBS UF | IBS município | IS
+	larguraRTCMono = []float64{51.6, 35.8, 67.8, 50.5} // §4.1/§4.4: IBS mono | CBS mono | IBS mono retenção | CBS mono retenção
+)
+
 // Colunas do quadro "Dados dos Produtos/Serviços". A ordem é a do item 3.8.1
 // (Obs 4: "Colunas apresentadas na ordem descrita"). O item 3.1.7 lista as
 // colunas que NÃO podem ser suprimidas — código, descrição, NCM, CST, CFOP,

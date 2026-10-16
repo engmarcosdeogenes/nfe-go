@@ -12,6 +12,7 @@ import (
 	"image"
 	_ "image/jpeg"
 	"image/png"
+	"strings"
 	"time"
 
 	"github.com/boombuler/barcode"
@@ -235,6 +236,22 @@ func formatarAliq(v float64) string {
 		return "0,00"
 	}
 	return fmt.Sprintf("%.2f", v)
+}
+
+// formatarOpcional formata um valor que pode não existir no XML: tag ausente
+// sai em branco, não "0,00" (NT 2026.010 §4.4).
+func formatarOpcional(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	return formatarMoeda(parseFloat(s))
+}
+
+// formatarAliqRTC usa 4 casas: pIBSUF/pIBSMun/pCBS/pAliqEfet têm 4 decimais
+// no schema, e com gRed a alíquota efetiva da transição (ex: 0,05% x 70%)
+// não cabe em 2.
+func formatarAliqRTC(v float64) string {
+	return strings.Replace(fmt.Sprintf("%.4f", v), ".", ",", 1)
 }
 
 func splitDecimal(s string) [2]string {
