@@ -47,6 +47,7 @@ func renderizarComMarca(d *DadosDANFE, cancelada bool, epec *InfoEPEC, logo *Log
 	y = renderDestinatario(pdf, d, y)
 	y = renderDuplicatas(pdf, d, y)
 	y = renderTotais(pdf, d, y)
+	y = renderTotaisRTC(pdf, d, y)
 	y = renderTransporte(pdf, d, y)
 
 	// O quadro "Cálculo do ISSQN" fica suprimido: a lib não emite serviço com
@@ -440,10 +441,18 @@ func renderNatureza(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	// O item 3.8.1 fixa três campos aqui: IE, IE do substituto tributário e
 	// CNPJ. A inscrição municipal do emitente não mora nesta linha — ela é o
 	// campo C19, do quadro "Cálculo do ISSQN", que está suprimido (§3.3.3).
-	return linhaCampos(pdf, y, larguraEmitIE, [][2]string{
+	y = linhaCampos(pdf, y, larguraEmitIE, [][2]string{
 		{"INSCRIÇÃO ESTADUAL", d.EmitIE},
 		{"INSCRIÇÃO ESTADUAL DO SUBST. TRIBUTÁRIO", d.EmitIEST},
 		{"CNPJ", d.EmitCNPJ},
+	})
+
+	// NT 2026.010 §4.2 — CRT (C21) e área reservada para o tipo de regime de
+	// apuração do IBS/CBS. A tag desse segundo campo ainda não existe, e a
+	// tabela do §4.4 manda não imprimir conteúdo nele até ela ser definida.
+	return linhaCampos(pdf, y, larguraEmitCRT, [][2]string{
+		{"CÓDIGO DO REGIME TRIBUTÁRIO", descricaoCRT(d.EmitCRT)},
+		{"TIPO DE REGIME DE APURAÇÃO DO IBS E DA CBS", ""},
 	})
 }
 
@@ -548,6 +557,32 @@ func renderTotais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 		{"OUTRAS DESPESAS ACESSÓRIAS", formatarMoeda(d.VOutro)},
 		{"VALOR DO IPI", formatarMoeda(d.VIPI)},
 		{"VALOR TOTAL DA NOTA", formatarMoeda(d.VNF)},
+	})
+}
+
+// renderTotaisRTC desenha o bloco "TOTAL DO IBS / CBS / IS", que a NT
+// 2026.010 §4.1 insere logo depois dos totais de ICMS/IPI. O bloco não está
+// na lista de quadros facultativos do §4.4, então sai sempre; em nota sem
+// IBSCBSTot/ISTot os campos ficam em branco, porque o §4.4 proíbe imprimir
+// informação que não existe no XML (nem "0,00"). A linha dos monofásicos é
+// condicionada ao grupo gMono (W57), também pelo §4.4.
+func renderTotaisRTC(pdf *Doc, d *DadosDANFE, y float64) float64 {
+	y = tituloBloco(pdf, y, "TOTAL DO IBS / CBS / IS")
+
+	y = linhaCampos(pdf, y, larguraRTCL1, [][2]string{
+		{"VALOR DA CBS", formatarOpcional(d.VCBSTot)},
+		{"VALOR DO IBS UF", formatarOpcional(d.VIBSUFTot)},
+		{"VALOR DO IBS MUNICÍPIO", formatarOpcional(d.VIBSMunTot)},
+		{"VALOR DO IMPOSTO SELETIVO", formatarOpcional(d.VISTot)},
+	})
+	if !d.TemMono {
+		return y
+	}
+	return linhaCampos(pdf, y, larguraRTCMono, [][2]string{
+		{"VALOR DO IBS MONOFÁSICO", formatarOpcional(d.VIBSMonoTot)},
+		{"VALOR DA CBS MONOFÁSICA", formatarOpcional(d.VCBSMonoTot)},
+		{"VALOR DO IBS MONOFÁSICO POR RETENÇÃO", formatarOpcional(d.VIBSMonoRetenTot)},
+		{"VALOR DA CBS MONOFÁSICA POR RETENÇÃO", formatarOpcional(d.VCBSMonoRetenTot)},
 	})
 }
 
@@ -671,7 +706,18 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64, logo *Logo, limite float64)
 			altLinha = float64(len(linhasDesc)) * 3.2
 		}
 
-		if y+altLinha > limite {
+		// NT 2026.010 §4.3 — cClassTrib, bases, alíquotas e valores do IBS
+		// UF, IBS município, CBS e IS. Saem numa sublinha rotulada, com a
+		// largura do quadro, logo abaixo das colunas de sempre: as 14
+		// colunas já ocupam os 20,57cm e 6pt é o piso do §3.7.7, então não
+		// cabem mais 11 colunas. Item sem os grupos não ganha sublinha.
+		textoRTC := linhaRTC(item)
+		altRTC := 0.0
+		if textoRTC != "" {
+			altRTC = float64(len(pdf.SplitLines([]byte(pdf.tr(textoRTC)), larguraUtil-2)))*3.2 + 0.4
+		}
+
+		if y+altLinha+altRTC > limite {
 			y = novaFolha()
 		}
 
@@ -695,6 +741,15 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64, logo *Logo, limite float64)
 			x += c.w
 		}
 		y += altLinha
+
+		if textoRTC != "" {
+			setarBorda(pdf)
+			pdf.Rect(margem, y, larguraUtil, altRTC, "D")
+			pdf.SetFont("Times", "", fonteItens)
+			pdf.SetXY(margem+1, y+0.2)
+			pdf.MultiCell(larguraUtil-2, 3.2, textoRTC, "", "L", false)
+			y += altRTC
+		}
 	}
 
 	// O quadro vai até o limite mesmo depois do último item: §3.3.2, §3.3.3 e
@@ -714,6 +769,43 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64, logo *Logo, limite float64)
 	}
 
 	return y
+}
+
+// linhaRTC monta a sublinha do item com os campos do §4.3 da NT 2026.010.
+// Cada valor vai rotulado, pela diretriz de legibilidade do §3 ("o leitor
+// precisa identificar de qual tributo se trata sem decorar posições"). A
+// alíquota do IBS/CBS já vem do parser como pAliqEfet quando há gRed.
+func linhaRTC(item itemDANFE) string {
+	var partes []string
+	if item.TemIBSCBS {
+		partes = append(partes, fmt.Sprintf(
+			"cClassTrib %s   BC IBS/CBS %s   IBS UF %s%% = %s   IBS Mun. %s%% = %s   CBS %s%% = %s",
+			item.ClassTrib, formatarMoeda(item.VBCIBSCBS),
+			formatarAliqRTC(item.AliqIBSUF), formatarMoeda(item.VIBSUF),
+			formatarAliqRTC(item.AliqIBSMun), formatarMoeda(item.VIBSMun),
+			formatarAliqRTC(item.AliqCBS), formatarMoeda(item.VCBS)))
+	}
+	if item.TemIS {
+		partes = append(partes, fmt.Sprintf("BC IS %s   IS %s%% = %s",
+			formatarMoeda(item.VBCIS), formatarAliqRTC(item.AliqIS), formatarMoeda(item.VIS)))
+	}
+	return strings.Join(partes, "   |   ")
+}
+
+// descricaoCRT devolve o CRT (C21) com o texto da tabela do MOC.
+func descricaoCRT(crt string) string {
+	switch crt {
+	case "1":
+		return "1 - SIMPLES NACIONAL"
+	case "2":
+		return "2 - SIMPLES NACIONAL - EXCESSO DE SUBLIMITE"
+	case "3":
+		return "3 - REGIME NORMAL"
+	case "4":
+		return "4 - SIMPLES NACIONAL - MEI"
+	default:
+		return crt
+	}
 }
 
 // ── Dados do pagamento ───────────────────────────────────────────────────────
