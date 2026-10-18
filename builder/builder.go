@@ -30,6 +30,7 @@ type EntradaNFe struct {
 	NatOp    string    // "VENDA DE MERCADORIA"
 	TpAmb    string    // "1"=produção "2"=homologação
 	FinNFe   string    // "1"=normal
+	TpNF     string    // "0"=entrada "1"=saída; vazio = "1"
 	IndFinal string    // "1"=consumidor final
 	IndPres  string    // "1"=presencial
 
@@ -55,7 +56,9 @@ type EntradaNFe struct {
 	Itens     []EntradaItem
 	Frete     EntradaFrete
 	Pagamento []EntradaPagamento
-	InfCpl    string // informações complementares
+	// Cobranca = grupo Y (fatura + duplicatas). Só NF-e 55; nil = sem <cobr>.
+	Cobranca *EntradaCobranca
+	InfCpl   string // informações complementares
 
 	// RespTec — responsável técnico pelo sistema emissor (NT 2015/002).
 	// Opcional no schema, mas algumas SEFAZ tratam como obrigatório na
@@ -64,6 +67,21 @@ type EntradaNFe struct {
 	RespTecContato string
 	RespTecEmail   string
 	RespTecFone    string
+}
+
+// EntradaCobranca é o grupo Y do MOC 7.0 (Anexo I): fatura e duplicatas.
+type EntradaCobranca struct {
+	NFat       string  // número da fatura (ex.: número da nota)
+	VOrig      float64 // valor original da fatura
+	VDesc      float64 // desconto da fatura
+	VLiq       float64 // valor líquido; zero = VOrig - VDesc
+	Duplicatas []EntradaDuplicata
+}
+
+type EntradaDuplicata struct {
+	NDup  string    // "001", "002"...; vazio = numerado pela posição
+	DVenc time.Time // vencimento (só a data conta)
+	VDup  float64
 }
 
 type EntradaEmitente struct {
@@ -370,6 +388,11 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 		finNFe = "1"
 	}
 
+	tpNF := e.TpNF
+	if tpNF == "" {
+		tpNF = "1" // padrão: saída
+	}
+
 	tpEmis := e.TpEmis
 	if tpEmis == "" {
 		tpEmis = "1"
@@ -401,7 +424,7 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 				Serie:    semZerosEsquerda(chave.Serie),
 				NNF:      semZerosEsquerda(chave.NNF),
 				DhEmi:    e.DhEmi.Format("2006-01-02T15:04:05-07:00"),
-				TpNF:     "1",
+				TpNF:     tpNF,
 				IdDest:   idDest,
 				CMunFG:   e.Emitente.End.CodigoMun,
 				TpImp:    tpImp,
@@ -425,7 +448,8 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 			Transp: Transporte{
 				ModFrete: modFrete,
 			},
-			Pag: montarPagamento(e.Pagamento),
+			Cobr: montarCobranca(e.Cobranca),
+			Pag:  montarPagamento(e.Pagamento),
 			InfAdic: func() *InfAdic {
 				if e.InfCpl == "" {
 					return nil
@@ -1085,6 +1109,124 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 	return imp, tot, nil
 }
 
+func centavos(v float64) int64 { return int64(math.Round(v * 100)) }
+
+// liquidoCobranca devolve o vLiq da fatura em centavos: o informado, ou
+// VOrig - VDesc quando vem zero.
+func liquidoCobranca(c *EntradaCobranca) int64 {
+	if c.VLiq != 0 {
+		return centavos(c.VLiq)
+	}
+	return centavos(c.VOrig) - centavos(c.VDesc)
+}
+
+// montarCobranca monta o grupo <cobr> (entre transp e pag). Assume entrada já
+// validada por validarCobranca.
+func montarCobranca(c *EntradaCobranca) *Cobranca {
+	if c == nil {
+		return nil
+	}
+	fat := &Fatura{
+		NFat:  c.NFat,
+		VOrig: fmtVal(c.VOrig),
+		VDesc: fmtValOmitZero(c.VDesc),
+		VLiq:  fmtVal(float64(liquidoCobranca(c)) / 100),
+	}
+	cobr := &Cobranca{Fat: fat}
+	for i, d := range c.Duplicatas {
+		n := d.NDup
+		if n == "" {
+			n = fmt.Sprintf("%03d", i+1)
+		}
+		cobr.Dup = append(cobr.Dup, Duplicata{NDup: n, DVenc: d.DVenc.Format("2006-01-02"), VDup: fmtVal(d.VDup)})
+	}
+	return cobr
+}
+
+// validarCobranca confere o grupo Y contra as regras da SEFAZ e a coerência
+// com o grupo de pagamento (YA).
+func validarCobranca(e EntradaNFe) error {
+	c := e.Cobranca
+	if c == nil {
+		return nil
+	}
+	if e.Mod == ModeloNFCe {
+		return fmt.Errorf("NFC-e (mod=65) não admite cobrança/duplicatas (cStat 760)")
+	}
+	if centavos(c.VDesc) > centavos(c.VOrig) {
+		return fmt.Errorf("desconto da fatura (R$ %s) maior que o valor original (R$ %s) (cStat 901)", fmtVal(c.VDesc), fmtVal(c.VOrig))
+	}
+	liq := liquidoCobranca(c)
+	if c.VLiq != 0 && centavos(c.VLiq) != centavos(c.VOrig)-centavos(c.VDesc) {
+		return fmt.Errorf("vLiq da fatura (R$ %s) difere de vOrig - vDesc (R$ %s) (cStat 902)", fmtVal(c.VLiq), fmtVal(float64(centavos(c.VOrig)-centavos(c.VDesc))/100))
+	}
+	if len(c.Duplicatas) == 0 {
+		return nil
+	}
+	if liq <= 0 {
+		return fmt.Errorf("fatura com duplicatas exige valor líquido maior que zero (cStat 905)")
+	}
+	dia := func(t time.Time) string { return t.Format("2006-01-02") }
+	var soma int64
+	for i, d := range c.Duplicatas {
+		esperado := fmt.Sprintf("%03d", i+1)
+		if d.NDup != "" && d.NDup != esperado {
+			return fmt.Errorf("duplicata %d com nDup %q: a numeração tem que ser sequencial, esperado %q (cStat 852)", i+1, d.NDup, esperado)
+		}
+		if d.DVenc.IsZero() || dia(d.DVenc) < dia(e.DhEmi) {
+			return fmt.Errorf("duplicata %d sem vencimento ou vencida antes da emissão (%s) (cStat 900)", i+1, dia(e.DhEmi))
+		}
+		if i > 0 && dia(d.DVenc) < dia(c.Duplicatas[i-1].DVenc) {
+			return fmt.Errorf("duplicata %d vence antes da parcela anterior (cStat 850)", i+1)
+		}
+		soma += centavos(d.VDup)
+	}
+	if soma != liq {
+		return fmt.Errorf("duplicatas somam R$ %s e o valor líquido da fatura é R$ %s (cStat 851)", fmtVal(float64(soma)/100), fmtVal(float64(liq)/100))
+	}
+	// Coerência com o grupo YA: duplicata só faz sentido com pagamento a prazo
+	// em duplicata mercantil (14), boleto (15), depósito (16) ou outros (99).
+	for _, p := range e.Pagamento {
+		if p.APrazo && (p.Forma == "14" || p.Forma == "15" || p.Forma == "16" || p.Forma == "99") {
+			return nil
+		}
+	}
+	return fmt.Errorf("cobrança com duplicatas exige ao menos um pagamento a prazo (APrazo) com forma 14, 15, 16 ou 99")
+}
+
+// validarTpNF confere o tipo de operação (entrada/saída) contra modelo, CFOP
+// e UF do destinatário.
+func validarTpNF(e EntradaNFe) error {
+	if e.TpNF != "" && e.TpNF != "0" && e.TpNF != "1" {
+		return fmt.Errorf("TpNF inválido: %q (esperado \"0\"=entrada ou \"1\"=saída)", e.TpNF)
+	}
+	if e.TpNF == "0" && e.Mod == ModeloNFCe {
+		return fmt.Errorf("NFC-e (mod=65) não pode ser de entrada, tpNF=0 (cStat 706)")
+	}
+	interestadual := e.Dest.End.UF != "" && e.Emitente.End.UF != e.Dest.End.UF
+	for i, it := range e.Itens {
+		if it.CFOP == "" {
+			continue
+		}
+		g := it.CFOP[0]
+		if e.TpNF == "0" {
+			switch {
+			case g == '5' || g == '6' || g == '7':
+				return fmt.Errorf("item %d: CFOP %s é de saída mas a nota é de entrada, tpNF=0 (cStat 519)", i+1, it.CFOP)
+			case g == '1' && interestadual:
+				return fmt.Errorf("item %d: CFOP %s é de operação interna mas o remetente é de outra UF (cStat 733)", i+1, it.CFOP)
+			case g == '2' && !interestadual:
+				return fmt.Errorf("item %d: CFOP %s é interestadual mas o remetente é da mesma UF (cStat 732)", i+1, it.CFOP)
+			case g == '3':
+				return fmt.Errorf("item %d: CFOP %s é de importação, que a lib não suporta (exige DI/adição, cStat 525)", i+1, it.CFOP)
+			}
+		} else if g == '1' || g == '2' || g == '3' {
+			return fmt.Errorf("item %d: CFOP %s é de entrada mas a nota é de saída, tpNF=1 (cStat 518)", i+1, it.CFOP)
+		}
+	}
+	return nil
+}
+
 func montarPagamento(ps []EntradaPagamento) Pagamento {
 	pag := Pagamento{}
 	for _, p := range ps {
@@ -1135,7 +1277,6 @@ func fecharPagamento(pag *Pagamento, vNFStr, mod string) error {
 		v, _ := strconv.ParseFloat(d.VPag, 64)
 		soma += v
 	}
-	centavos := func(v float64) int64 { return int64(math.Round(v * 100)) }
 	switch {
 	case centavos(soma) > centavos(vNF) && centavos(vNF) > 0:
 		pag.VTroco = fmtVal(float64(centavos(soma)-centavos(vNF)) / 100)
@@ -1201,7 +1342,10 @@ func validarEntrada(e EntradaNFe) error {
 			return fmt.Errorf("item %d sem descrição (xProd)", i+1)
 		}
 	}
-	return nil
+	if err := validarTpNF(e); err != nil {
+		return err
+	}
+	return validarCobranca(e)
 }
 
 // ── Helpers de formatação ─────────────────────────────────────────────────────

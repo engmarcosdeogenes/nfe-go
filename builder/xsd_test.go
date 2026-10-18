@@ -90,7 +90,17 @@ func TestXSD_VariantesDoBuilder(t *testing.T) {
 	interestadual.Dest.End.UF = "SP"
 	interestadual.Dest.IndIEDest = "9"
 
+	cobr := entradaComCobranca()
+	entrada0 := entradaExemplo()
+	entrada0.TpNF = "0"
+	entrada0.Dest.CNPJ, entrada0.Dest.CPF, entrada0.Dest.IndIEDest, entrada0.Dest.IE = "", "12345678901", "9", ""
+	for i := range entrada0.Itens {
+		entrada0.Itens[i].CFOP = "1102"
+	}
+
 	casos := map[string]builder.EntradaNFe{
+		"cobranca_3_dup":    cobr,
+		"entrada_tpnf0":     entrada0,
 		"exemplo":           entradaExemplo(),
 		"crt3":              entradaCRT3ComItemPadrao(),
 		"crt3_ibscbs":       com(entradaCRT3(), ibs),

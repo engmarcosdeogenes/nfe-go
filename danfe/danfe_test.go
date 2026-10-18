@@ -21,7 +21,11 @@ import (
 
 func nfeAssinadaParaTeste(t *testing.T) []byte {
 	t.Helper()
-	entrada := builder.EntradaNFe{
+	return assinarEntrada(t, entradaDANFETeste())
+}
+
+func entradaDANFETeste() builder.EntradaNFe {
+	return builder.EntradaNFe{
 		Serie:    "1",
 		NNF:      "42",
 		DhEmi:    time.Date(2026, 6, 25, 10, 0, 0, 0, time.FixedZone("BRT", -3*3600)),
@@ -65,8 +69,6 @@ func nfeAssinadaParaTeste(t *testing.T) []byte {
 		Pagamento: []builder.EntradaPagamento{{Forma: "15", Valor: 3400.00, APrazo: true}},
 		InfCpl:    "Pedido interno: #42 - Condição de pagamento: 30/60/90 dias.",
 	}
-
-	return assinarEntrada(t, entrada)
 }
 
 func assinarEntrada(t *testing.T, entrada builder.EntradaNFe) []byte {
