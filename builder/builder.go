@@ -214,9 +214,45 @@ type EntradaIPI struct {
 	Aliq float64
 }
 
+// EntradaFrete é o grupo X (transporte) mais os valores de frete, seguro e
+// outras despesas, que o builder rateia entre os itens (ver ratearFrete).
+// Tudo além de Modalidade/VFrete é opcional; sem nada, a nota sai como antes.
 type EntradaFrete struct {
-	Modalidade string // "0"=CIF "1"=FOB "9"=sem frete
+	Modalidade string // "0"=CIF "1"=FOB "2"=terceiros "3"=próprio remetente "4"=próprio destinatário "9"=sem frete (padrão)
 	VFrete     float64
+	VSeg       float64 // seguro: rateado nos itens, soma no vNF
+	VOutro     float64 // outras despesas acessórias: idem
+
+	Transportador *EntradaTransportador // grupo transporta; proibido com Modalidade "9" (845)
+	Veiculo       *EntradaVeiculo       // veicTransp; proibido em operação interestadual (868)
+	Reboques      []EntradaVeiculo      // até 5; mesma regra do veículo
+	Volumes       []EntradaVolume
+}
+
+type EntradaTransportador struct {
+	CNPJ string // CNPJ ou CPF, nunca os dois
+	CPF  string
+	Nome string
+	IE   string // exige UF (559)
+	End  string // endereço completo em uma linha (xEnder)
+	Mun  string
+	UF   string
+}
+
+type EntradaVeiculo struct {
+	Placa string
+	UF    string
+	RNTC  string
+}
+
+type EntradaVolume struct {
+	Quantidade int
+	Especie    string
+	Marca      string
+	Numeracao  string
+	PesoLiq    float64 // kg
+	PesoBruto  float64 // kg
+	Lacres     []string
 }
 
 type EntradaPagamento struct {
@@ -445,11 +481,9 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 			AutXML: montarAutXML(e.AutXML),
 			Det:    detalhes,
 			Total:  Total{ICMSTot: totais, IBSCBSTot: ibscbsTot},
-			Transp: Transporte{
-				ModFrete: modFrete,
-			},
-			Cobr: montarCobranca(e.Cobranca),
-			Pag:  montarPagamento(e.Pagamento),
+			Transp: montarTransporte(e.Frete, modFrete),
+			Cobr:   montarCobranca(e.Cobranca),
+			Pag:    montarPagamento(e.Pagamento),
 			InfAdic: func() *InfAdic {
 				if e.InfCpl == "" {
 					return nil
@@ -635,6 +669,7 @@ func montarAutXML(entradas []EntradaAutXML) []AutXML {
 func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	var detalhes []Detalhe
 	tot := ICMSTot{}
+	rateioFrete, rateioSeg, rateioOutro := ratearFrete(e)
 	vProdTotal := 0.0
 	vDescTotal := 0.0
 	vBCTotal := 0.0
@@ -716,8 +751,14 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 			Imposto: imp,
 		}
 
-		if e.Frete.VFrete > 0 && i == 0 {
-			det.Prod.VFrete = fmtVal(e.Frete.VFrete)
+		if e.Frete.VFrete > 0 {
+			det.Prod.VFrete = fmtVal(float64(rateioFrete[i]) / 100)
+		}
+		if e.Frete.VSeg > 0 {
+			det.Prod.VSeg = fmtVal(float64(rateioSeg[i]) / 100)
+		}
+		if e.Frete.VOutro > 0 {
+			det.Prod.VOutro = fmtVal(float64(rateioOutro[i]) / 100)
 		}
 
 		detalhes = append(detalhes, det)
@@ -730,7 +771,8 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	tot.VFrete = fmtVal(e.Frete.VFrete)
 	// vST compõe o valor total da operação (MOC 4.00, vNF); omitir esse
 	// valor gera rejeição 610 quando há ST prospectivo, como CSOSN 201/202.
-	tot.VNF = fmtVal(vProdTotal + e.Frete.VFrete + vICMSSTTotal - vDescTotal)
+	// W16-10: vNF = vProd - vDesc + vST + vFrete + vSeg + vOutro.
+	tot.VNF = fmtVal(vProdTotal + e.Frete.VFrete + e.Frete.VSeg + e.Frete.VOutro + vICMSSTTotal - vDescTotal)
 	tot.VBC = fmtVal(vBCTotal)
 	tot.VICMS = fmtVal(vICMSTotal)
 	tot.VICMSDeson = "0.00"
@@ -746,13 +788,13 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	tot.VST = fmtVal(vICMSSTTotal)
 	tot.VFCPST = "0.00"
 	tot.VFCPSTRet = "0.00"
-	tot.VSeg = "0.00"
+	tot.VSeg = fmtVal(e.Frete.VSeg)
 	tot.VII = "0.00"
 	tot.VIPI = fmtVal(vIPITotal)
 	tot.VIPIDevol = "0.00"
 	tot.VPIS = fmtVal(vPISTotal)
 	tot.VCOFINS = fmtVal(vCOFINSTotal)
-	tot.VOutro = "0.00"
+	tot.VOutro = fmtVal(e.Frete.VOutro)
 	tot.VTotTrib = "0.00"
 	if tot.VDesc == "" {
 		tot.VDesc = "0.00"
@@ -1343,6 +1385,9 @@ func validarEntrada(e EntradaNFe) error {
 		}
 	}
 	if err := validarTpNF(e); err != nil {
+		return err
+	}
+	if err := validarTransporte(e); err != nil {
 		return err
 	}
 	return validarCobranca(e)

@@ -676,7 +676,21 @@ type ICMSTot struct {
 type Transporte struct {
 	ModFrete string          `xml:"modFrete"` // 0=CIF, 1=FOB, 2=terceiros, 9=sem frete
 	Transp   *Transportadora `xml:"transporta,omitempty"`
-	Vol      []Volume        `xml:"vol,omitempty"`
+	// Ordem do XSD: transporta -> retTransp -> veicTransp -> reboque -> vol.
+	VeicTransp *Veiculo  `xml:"veicTransp,omitempty"`
+	Reboque    []Veiculo `xml:"reboque,omitempty"` // até 5
+	Vol        []Volume  `xml:"vol,omitempty"`
+}
+
+// Veiculo é o TVeiculo do schema (veicTransp e reboque).
+type Veiculo struct {
+	Placa string `xml:"placa"`
+	UF    string `xml:"UF,omitempty"`
+	RNTC  string `xml:"RNTC,omitempty"`
+}
+
+type Lacre struct {
+	NLacre string `xml:"nLacre"`
 }
 
 type Transportadora struct {
@@ -690,12 +704,13 @@ type Transportadora struct {
 }
 
 type Volume struct {
-	QVol  string `xml:"qVol,omitempty"`
-	Esp   string `xml:"esp,omitempty"`
-	Marca string `xml:"marca,omitempty"`
-	NVol  string `xml:"nVol,omitempty"`
-	PesoL string `xml:"pesoL,omitempty"`
-	PesoB string `xml:"pesoB,omitempty"`
+	QVol   string  `xml:"qVol,omitempty"`
+	Esp    string  `xml:"esp,omitempty"`
+	Marca  string  `xml:"marca,omitempty"`
+	NVol   string  `xml:"nVol,omitempty"`
+	PesoL  string  `xml:"pesoL,omitempty"`
+	PesoB  string  `xml:"pesoB,omitempty"`
+	Lacres []Lacre `xml:"lacres,omitempty"`
 }
 
 // ── Cobrança ─────────────────────────────────────────────────────────────────
