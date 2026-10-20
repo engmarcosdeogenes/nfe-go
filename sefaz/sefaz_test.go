@@ -2,6 +2,9 @@ package sefaz_test
 
 import (
 	"context"
+	"crypto"
+	"crypto/rsa"
+	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -294,12 +297,37 @@ func TestAutorizarContingenciaNFCe_Sucesso(t *testing.T) {
 	}
 	// digVal (campo 6) tem que ser o hex do DigestValue real da assinatura
 	digB64 := extrairEntre(xmlStr, "<DigestValue>", "</DigestValue>")
-	raw, _ := base64.StdEncoding.DecodeString(digB64)
-	digHex := strings.ToUpper(fmt.Sprintf("%x", raw))
+	// manual v6.0 4.3.2: hex do texto base64 do DigestValue (56 dígitos)
+	digHex := fmt.Sprintf("%x", []byte(digB64))
 	if !strings.Contains(qr, "|"+digHex+"|") {
 		t.Errorf("QR não embute o DigestValue da assinatura (%s)", digHex)
 	}
 	t.Logf("AutorizarContingenciaNFCe OK — %d bytes, qr=%s", len(assinado), qr)
+}
+
+func TestAutorizarContingenciaNFCe_QRVersao3_AssinadoSemCSC(t *testing.T) {
+	e := entradaContingenciaNFCe()
+	e.QRVersao, e.CSC, e.CSCId = "3", "", ""
+	c := certTeste(t)
+	assinado, chave, err := sefaz.AutorizarContingenciaNFCe(e, c)
+	if err != nil {
+		t.Fatalf("AutorizarContingenciaNFCe v3: %v", err)
+	}
+	qr := extrairEntre(string(assinado), "<qrCode>", "</qrCode>")
+	p := strings.Index(qr, "?p=")
+	partes := strings.Split(qr[p+3:], "|")
+	// chave|3|tpAmb|dd|vNF|tpId|id|assinatura
+	if len(partes) != 8 || partes[0] != chave || partes[1] != "3" || partes[2] != "2" || partes[3] != "26" || partes[4] != "50.00" || partes[5] != "" || partes[6] != "" {
+		t.Fatalf("QR 3.00 offline fora do leiaute da tabela 7: %v", partes)
+	}
+	sig, err := base64.StdEncoding.DecodeString(partes[7])
+	if err != nil {
+		t.Fatalf("assinatura não é Base64: %v", err)
+	}
+	h := sha1.Sum([]byte(strings.Join(partes[:7], "|")))
+	if err := rsa.VerifyPKCS1v15(&c.Chave.PublicKey, crypto.SHA1, h[:], sig); err != nil {
+		t.Errorf("assinatura do QR não confere com o certificado: %v", err)
+	}
 }
 
 func TestAutorizarContingenciaNFCe_ModErrado_Erro(t *testing.T) {

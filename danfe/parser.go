@@ -23,13 +23,19 @@ type DadosDANFE struct {
 	// Protocolo (preenchido se vier nfeProc)
 	NumProtocolo string
 	DataAutorizacao string
+	// DhEmiCompleta/DhRecbtoCompleta: dd/mm/aaaa hh:mm:ss no fuso do próprio
+	// XML (o offset de dhEmi/dhRecbto já é o horário local da UF) -- o NFC-e
+	// imprime com segundos (manual v6.0, divisão VII).
+	DhEmiCompleta     string
+	DhRecbtoCompleta  string
 	DataSaida    string
 	HoraSaida    string
 
 	// Emitente
 	EmitNome    string
 	EmitFantasia string
-	EmitCNPJ    string
+	EmitCNPJ    string // CNPJ formatado; vazio quando o emitente é CPF
+	EmitCPF     string // CPF formatado (NFC-e de produtor rural/pessoa física)
 	EmitIE      string
 	EmitIEST    string
 	EmitIM      string
@@ -40,6 +46,7 @@ type DadosDANFE struct {
 	DestNome  string
 	DestCNPJ  string
 	DestCPF   string
+	DestIdEstrangeiro string
 	DestIE    string
 	DestIndIEDest string
 	DestEnd   enderecoDANFE
@@ -60,6 +67,7 @@ type DadosDANFE struct {
 	VPIS     float64
 	VCOFINS  float64
 	VOutro   float64
+	VTroco   float64
 	VNF      float64
 	VII      float64
 	VFCP     float64
@@ -131,7 +139,7 @@ type itemDANFE struct {
 }
 
 type pagtoDANFE struct {
-	Forma string
+	Forma string // descrição de tPag
 	Valor float64
 }
 
@@ -264,6 +272,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			TPag string `xml:"tPag"`
 			VPag string `xml:"vPag"`
 		} `xml:"detPag"`
+		VTroco string `xml:"vTroco"`
 	}
 	type xmlNFe struct {
 		InfNFe struct {
@@ -282,6 +291,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			} `xml:"ide"`
 			Emit struct {
 				CNPJ   string `xml:"CNPJ"`
+				CPF    string `xml:"CPF"`
 				XNome  string `xml:"xNome"`
 				XFant  string `xml:"xFant"`
 				IE     string `xml:"IE"`
@@ -293,6 +303,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			Dest struct {
 				CNPJ      string `xml:"CNPJ"`
 				CPF       string `xml:"CPF"`
+				IdEstrangeiro string `xml:"idEstrangeiro"`
 				XNome     string `xml:"xNome"`
 				IE        string `xml:"IE"`
 				IndIEDest string `xml:"indIEDest"`
@@ -371,11 +382,14 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 		UrlChave:        nfe.InfNFeSupl.UrlChave,
 		NumProtocolo:    proc.ProtNFe.NProtocolo,
 		DataAutorizacao: formatarDataHora(proc.ProtNFe.DhRecbto),
+		DhEmiCompleta:   formatarDataHoraSeg(inf.Ide.DhEmi),
+		DhRecbtoCompleta: formatarDataHoraSeg(proc.ProtNFe.DhRecbto),
 		DataSaida:       formatarData(inf.Ide.DhSaiEnt),
 		HoraSaida:       formatarHora(inf.Ide.DhSaiEnt),
 		EmitNome:        inf.Emit.XNome,
 		EmitFantasia:    inf.Emit.XFant,
 		EmitCNPJ:        formatarCNPJ(inf.Emit.CNPJ),
+		EmitCPF:         formatarCPF(inf.Emit.CPF),
 		EmitIE:          inf.Emit.IE,
 		EmitIEST:        inf.Emit.IEST,
 		EmitIM:          inf.Emit.IM,
@@ -384,6 +398,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 		DestNome:        inf.Dest.XNome,
 		DestCNPJ:        formatarCNPJ(inf.Dest.CNPJ),
 		DestCPF:         formatarCPF(inf.Dest.CPF),
+		DestIdEstrangeiro: inf.Dest.IdEstrangeiro,
 		DestIE:          inf.Dest.IE,
 		DestIndIEDest:   inf.Dest.IndIEDest,
 		DestEnd:         converterEndereco(inf.Dest.Ender),
@@ -405,6 +420,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 	d.VCOFINS = parseFloat(inf.Total.ICMSTot.VCOFINS)
 	d.VOutro = parseFloat(inf.Total.ICMSTot.VOutro)
 	d.VNF = parseFloat(inf.Total.ICMSTot.VNF)
+	d.VTroco = parseFloat(inf.Pag.VTroco)
 	d.VII = parseFloat(inf.Total.ICMSTot.VII)
 	d.VFCP = parseFloat(inf.Total.ICMSTot.VFCP)
 	d.VTotTrib = parseFloat(inf.Total.ICMSTot.VTotTrib)
@@ -540,6 +556,14 @@ func formatarDataHora(s string) string {
 		return s
 	}
 	return s[8:10] + "/" + s[5:7] + "/" + s[0:4] + " " + s[11:16]
+}
+
+// formatarDataHoraSeg: "2026-06-25T10:00:07-03:00" -> "25/06/2026 10:00:07".
+func formatarDataHoraSeg(s string) string {
+	if len(s) < 19 {
+		return formatarDataHora(s)
+	}
+	return s[8:10] + "/" + s[5:7] + "/" + s[0:4] + " " + s[11:19]
 }
 
 func formatarHora(s string) string {

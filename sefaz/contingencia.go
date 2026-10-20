@@ -41,7 +41,8 @@ func AutorizarContingencia(e builder.EntradaNFe, c *cert.Certificado) ([]byte, e
 // Guardar e retransmitir via Cliente.Autorizar quando a SEFAZ normalizar,
 // com a MESMA chave (2º retorno) e o MESMO XML (a SEFAZ trata reenvio de
 // chave já autorizada como cStat=539). A entrada precisa de Mod="65",
-// CSC/CSCId, UrlConsultaNFCe, DhCont e XJust (≥15 chars).
+// UrlConsultaNFCe, DhCont e XJust (≥15 chars) e, no QR Code 2.00, CSC/CSCId
+// (com QRVersao="3" o QR é assinado pelo certificado e não usa CSC).
 func AutorizarContingenciaNFCe(e builder.EntradaNFe, c *cert.Certificado) ([]byte, string, error) {
 	e.TpEmis = "9"
 	if e.Mod == "" {
@@ -72,7 +73,12 @@ func AutorizarContingenciaNFCe(e builder.EntradaNFe, c *cert.Certificado) ([]byt
 		return nil, "", fmt.Errorf("sefaz: vNF não encontrado no XML assinado")
 	}
 
-	supl, err := builder.MontarQRCodeContingenciaNFCe(e, chave, vNF, digestB64)
+	var supl *builder.InfNFeSupl
+	if e.QRVersao == builder.QRVersao3 {
+		supl, err = builder.MontarQRCodeContingenciaNFCeV3(e, chave, vNF, c.Chave)
+	} else {
+		supl, err = builder.MontarQRCodeContingenciaNFCe(e, chave, vNF, digestB64)
+	}
 	if err != nil {
 		return nil, "", err
 	}

@@ -1605,8 +1605,9 @@ func TestMontarQRCodeContingenciaNFCe(t *testing.T) {
 	if partes[4] != "50.00" {
 		t.Errorf("campo vNF = %q, esperava \"50.00\"", partes[4])
 	}
-	if len(partes[5]) != 40 {
-		t.Errorf("digVal hex devia ter 40 chars, tem %d: %q", len(partes[5]), partes[5])
+	// manual v6.0 4.3.2: digVal tem 56 bytes = hex do TEXTO base64 do DigestValue
+	if len(partes[5]) != 56 || partes[5] != fmt.Sprintf("%x", []byte(digB64)) {
+		t.Errorf("digVal = %q, esperava o hex do texto base64 (56 chars)", partes[5])
 	}
 	if partes[6] != "1" {
 		t.Errorf("cIdToken = %q, esperava \"1\"", partes[6])
