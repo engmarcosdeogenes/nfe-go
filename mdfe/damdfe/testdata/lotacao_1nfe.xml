@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mdfeProc xmlns="http://www.portalfiscal.inf.br/mdfe" versao="3.00"><MDFe xmlns="http://www.portalfiscal.inf.br/mdfe"><infMDFe Id="MDFe35261012345678000195580010000000011000000019" versao="3.00">
+<ide><cUF>35</cUF><tpAmb>2</tpAmb><tpEmit>1</tpEmit><mod>58</mod><serie>1</serie><nMDF>1</nMDF><cMDF>00000001</cMDF><cDV>9</cDV><modal>1</modal><dhEmi>2026-10-26T10:30:00-03:00</dhEmi><tpEmis>1</tpEmis><procEmi>0</procEmi><verProc>1.0</verProc><UFIni>SP</UFIni><UFFim>MG</UFFim><infMunCarrega><cMunCarrega>3550308</cMunCarrega><xMunCarrega>Sao Paulo</xMunCarrega></infMunCarrega></ide>
+<emit><CNPJ>12345678000195</CNPJ><IE>110042490114</IE><xNome>Transportadora Exemplo Ltda</xNome><enderEmit><xLgr>Rua das Flores</xLgr><nro>100</nro><xBairro>Centro</xBairro><cMun>3550308</cMun><xMun>Sao Paulo</xMun><CEP>01001000</CEP><UF>SP</UF></enderEmit></emit>
+<infModal versaoModal="3.00"><rodo><infANTT><RNTRC>12345678</RNTRC></infANTT>
+<veicTracao><cInt>1</cInt><placa>ABC1D23</placa><tara>8000</tara><capKG>30000</capKG><prop><CNPJ>12345678000195</CNPJ><RNTRC>12345678</RNTRC><xNome>Transportadora</xNome><IE>110042490114</IE><UF>SP</UF><tpProp>0</tpProp></prop><condutor><xNome>Joao da Silva</xNome><CPF>12345678909</CPF></condutor><tpRod>03</tpRod><tpCar>02</tpCar><UF>SP</UF></veicTracao></rodo></infModal>
+<infDoc><infMunDescarga><cMunDescarga>3106200</cMunDescarga><xMunDescarga>Belo Horizonte</xMunDescarga><infNFe><chNFe>35261012345678000195550010000000011000000011</chNFe></infNFe></infMunDescarga></infDoc>
+<tot><qNFe>1</qNFe><vCarga>15000.50</vCarga><cUnid>01</cUnid><qCarga>12000.0000</qCarga></tot>
+<infAdic><infCpl>Carga lotacao. Observacao de teste com acentuação: ação, é, ç.</infCpl></infAdic>
+</infMDFe><infMDFeSupl><qrCodMDFe>https://dfe-portal.svrs.rs.gov.br/mdfe/qrCode?chMDFe=35261012345678000195580010000000011000000019&amp;tpAmb=2</qrCodMDFe></infMDFeSupl></MDFe>
+<protMDFe versao="3.00"><infProt><tpAmb>2</tpAmb><verAplic>RS</verAplic><chMDFe>35261012345678000195580010000000011000000019</chMDFe><dhRecbto>2026-10-26T10:31:00-03:00</dhRecbto><nProt>135260000000001</nProt><digVal>abc=</digVal><cStat>100</cStat><xMotivo>Autorizado</xMotivo></infProt></protMDFe></mdfeProc>

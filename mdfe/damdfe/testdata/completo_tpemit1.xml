@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mdfeProc xmlns="http://www.portalfiscal.inf.br/mdfe" versao="3.00"><MDFe xmlns="http://www.portalfiscal.inf.br/mdfe"><infMDFe Id="MDFe35261012345678000195580010000000031000000035" versao="3.00">
+<ide><cUF>35</cUF><tpAmb>1</tpAmb><tpEmit>1</tpEmit><tpTransp>2</tpTransp><mod>58</mod><serie>1</serie><nMDF>3</nMDF><cMDF>00000003</cMDF><cDV>5</cDV><modal>1</modal><dhEmi>2026-10-26T10:30:00-03:00</dhEmi><tpEmis>1</tpEmis><procEmi>0</procEmi><verProc>1.0</verProc><UFIni>SP</UFIni><UFFim>BA</UFFim>
+<infMunCarrega><cMunCarrega>3550308</cMunCarrega><xMunCarrega>Sao Paulo</xMunCarrega></infMunCarrega><infMunCarrega><cMunCarrega>3509502</cMunCarrega><xMunCarrega>Campinas</xMunCarrega></infMunCarrega>
+<infPercurso><UFPer>MG</UFPer></infPercurso><infPercurso><UFPer>GO</UFPer></infPercurso></ide>
+<emit><CNPJ>12345678000195</CNPJ><IE>110042490114</IE><xNome>Transportadora Exemplo Ltda</xNome><enderEmit><xLgr>Rua das Flores</xLgr><nro>100</nro><xBairro>Centro</xBairro><cMun>3550308</cMun><xMun>Sao Paulo</xMun><CEP>01001000</CEP><UF>SP</UF></enderEmit></emit>
+<infModal versaoModal="3.00"><rodo><infANTT><RNTRC>12345678</RNTRC>
+<infCIOT><CIOT>123456789012</CIOT><CNPJ>11222333000181</CNPJ></infCIOT>
+<valePed><disp><CNPJForn>22333444000155</CNPJForn><CNPJPg>11222333000181</CNPJPg><nCompra>COMP-777</nCompra><vValePed>350.00</vValePed></disp></valePed>
+<infContratante><xNome>Contratante Alfa SA</xNome><CNPJ>33444555000166</CNPJ><infContrato><NroContrato>CT-2026-01</NroContrato><vContratoGlobal>9000.00</vContratoGlobal></infContrato></infContratante>
+<infPag><xNome>Contratante Alfa SA</xNome><CNPJ>33444555000166</CNPJ><vContrato>9000.00</vContrato><indPag>0</indPag></infPag>
+</infANTT>
+<veicTracao><cInt>1</cInt><placa>TRC1A23</placa><tara>8000</tara><capKG>30000</capKG><prop><CPF>52998224725</CPF><RNTRC>87654321</RNTRC><xNome>Antonio Terceiro</xNome><UF>SP</UF><tpProp>1</tpProp></prop><condutor><xNome>Joao da Silva</xNome><CPF>12345678909</CPF></condutor><tpRod>03</tpRod><tpCar>02</tpCar><UF>SP</UF></veicTracao>
+<veicReboque><cInt>2</cInt><placa>REB2B22</placa><tara>6000</tara><capKG>25000</capKG><tpCar>02</tpCar><UF>SP</UF></veicReboque></rodo></infModal>
+<infDoc><infMunDescarga><cMunDescarga>2927408</cMunDescarga><xMunDescarga>Salvador</xMunDescarga>
+<infCTe><chCTe>35261012345678000195570010000000011000000017</chCTe></infCTe>
+<infNFe><chNFe>35261012345678000195550010000000011000000011</chNFe></infNFe>
+<infMDFeTransp><chMDFe>35261012345678000195580010000000021000000024</chMDFe></infMDFeTransp>
+</infMunDescarga></infDoc>
+<seg><infResp><respSeg>1</respSeg><CNPJ>12345678000195</CNPJ></infResp><infSeg><xSeg>Seguradora Delta</xSeg><CNPJ>44555666000177</CNPJ></infSeg><nApol>APOL-998877</nApol><nAver>AVERB-0001</nAver></seg>
+<prodPred><tpCarga>05</tpCarga><xProd>Carga geral de teste</xProd><NCM>73089090</NCM></prodPred>
+<tot><qCTe>1</qCTe><qNFe>1</qNFe><qMDFe>1</qMDFe><vCarga>80000.00</vCarga><cUnid>01</cUnid><qCarga>12000.0000</qCarga></tot>
+<infAdic><infCpl>Complemento.</infCpl></infAdic>
+</infMDFe><infMDFeSupl><qrCodMDFe>https://dfe-portal.svrs.rs.gov.br/mdfe/qrCode?chMDFe=35261012345678000195580010000000031000000035&amp;tpAmb=1</qrCodMDFe></infMDFeSupl></MDFe>
+<protMDFe versao="3.00"><infProt><tpAmb>1</tpAmb><verAplic>RS</verAplic><chMDFe>35261012345678000195580010000000031000000035</chMDFe><dhRecbto>2026-10-26T10:31:00-03:00</dhRecbto><nProt>135260000000003</nProt><cStat>100</cStat></infProt></protMDFe></mdfeProc>

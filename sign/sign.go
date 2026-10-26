@@ -27,26 +27,54 @@ import (
 // AssinarNFe recebe o XML bruto da NF-e (saído do builder) e o certificado,
 // e retorna o XML completo com <Signature> embutido, pronto para enviar à SEFAZ.
 func AssinarNFe(nfeXML []byte, c *cert.Certificado) ([]byte, error) {
-	return assinarGenerico(nfeXML, []byte("<infNFe "), []byte("</NFe>"), c)
+	return assinarGenerico(nfeXML, []byte("<infNFe "), []byte("</NFe>"), nsNFe, c)
 }
 
 // AssinarEvento assina um XML de evento NF-e (cancelamento, CCe, etc.).
 // O elemento assinado é <infEvento Id="...">.
 func AssinarEvento(eventoXML []byte, c *cert.Certificado) ([]byte, error) {
-	return assinarGenerico(eventoXML, []byte("<infEvento "), []byte("</evento>"), c)
+	return assinarGenerico(eventoXML, []byte("<infEvento "), []byte("</evento>"), nsNFe, c)
 }
 
 // AssinarInutilizacao assina um XML de inutilização NF-e.
 // O elemento assinado é <infInut Id="...">.
 func AssinarInutilizacao(inutXML []byte, c *cert.Certificado) ([]byte, error) {
-	return assinarGenerico(inutXML, []byte("<infInut "), []byte("</inutNFe>"), c)
+	return assinarGenerico(inutXML, []byte("<infInut "), []byte("</inutNFe>"), nsNFe, c)
+}
+
+// Namespaces dos documentos suportados.
+const (
+	nsNFe  = "http://www.portalfiscal.inf.br/nfe"
+	NSMDFe = "http://www.portalfiscal.inf.br/mdfe"
+	NSCTe  = "http://www.portalfiscal.inf.br/cte"
+)
+
+// AssinarMDFe assina <infMDFe Id="MDFe..."> e insere a Signature antes de
+// </MDFe> (depois de infMDFeSupl, ordem do schema).
+func AssinarMDFe(x []byte, c *cert.Certificado) ([]byte, error) {
+	return assinarGenerico(x, []byte("<infMDFe "), []byte("</MDFe>"), NSMDFe, c)
+}
+
+// AssinarEventoMDFe assina <infEvento> de <eventoMDFe>.
+func AssinarEventoMDFe(x []byte, c *cert.Certificado) ([]byte, error) {
+	return assinarGenerico(x, []byte("<infEvento "), []byte("</eventoMDFe>"), NSMDFe, c)
+}
+
+// AssinarCTe assina <infCte Id="CTe..."> e insere a Signature antes de </CTe>.
+func AssinarCTe(x []byte, c *cert.Certificado) ([]byte, error) {
+	return assinarGenerico(x, []byte("<infCte "), []byte("</CTe>"), NSCTe, c)
+}
+
+// AssinarEventoCTe assina <infEvento> de <eventoCTe>.
+func AssinarEventoCTe(x []byte, c *cert.Certificado) ([]byte, error) {
+	return assinarGenerico(x, []byte("<infEvento "), []byte("</eventoCTe>"), NSCTe, c)
 }
 
 // ── Núcleo de assinatura ──────────────────────────────────────────────────────
 
 // assinarGenerico assina qualquer elemento xmldsig da SEFAZ (infNFe, infEvento, infInut).
-func assinarGenerico(xmlBytes, tagInicio, tagFechamentoRaiz []byte, c *cert.Certificado) ([]byte, error) {
-	elementoC14N, refURI, err := extrairElementoC14N(xmlBytes, tagInicio)
+func assinarGenerico(xmlBytes, tagInicio, tagFechamentoRaiz []byte, ns string, c *cert.Certificado) ([]byte, error) {
+	elementoC14N, refURI, err := extrairElementoC14N(xmlBytes, tagInicio, ns)
 	if err != nil {
 		return nil, fmt.Errorf("sign: %w", err)
 	}
@@ -86,7 +114,7 @@ func assinarGenerico(xmlBytes, tagInicio, tagFechamentoRaiz []byte, c *cert.Cert
 // extrairElementoC14N localiza o elemento identificado por tagInicio dentro de xmlBytes,
 // adiciona o namespace explícito e retorna os bytes canônicos + o valor de Id.
 // tagInicio deve incluir o espaço final: ex []byte("<infNFe ")
-func extrairElementoC14N(xmlBytes, tagInicio []byte) ([]byte, string, error) {
+func extrairElementoC14N(xmlBytes, tagInicio []byte, ns string) ([]byte, string, error) {
 	ini := bytes.Index(xmlBytes, tagInicio)
 	if ini < 0 {
 		return nil, "", fmt.Errorf("tag %s não encontrada no XML", tagInicio)
@@ -116,8 +144,8 @@ func extrairElementoC14N(xmlBytes, tagInicio []byte) ([]byte, string, error) {
 	copy(elemento, xmlBytes[ini:fim])
 
 	// Insere xmlns logo após a abertura da tag (namespace decl antes de atributos regulares)
-	const ns = `xmlns="http://www.portalfiscal.inf.br/nfe" `
-	elemento = bytes.Replace(elemento, tagInicio, append(tagInicio, []byte(ns)...), 1)
+	decl := `xmlns="` + ns + `" `
+	elemento = bytes.Replace(elemento, tagInicio, append(append([]byte{}, tagInicio...), decl...), 1)
 
 	return elemento, refURI, nil
 }
@@ -178,7 +206,13 @@ func assinarRSASHA1(chave *rsa.PrivateKey, data []byte) ([]byte, error) {
 // VerificarAssinatura verifica a assinatura de um XML de NF-e já assinado.
 // Útil para validar o próprio output antes de enviar à SEFAZ.
 func VerificarAssinatura(nfeAssinado []byte, c *cert.Certificado) error {
-	infNFeC14N, refURI, err := extrairElementoC14N(nfeAssinado, []byte("<infNFe "))
+	return VerificarAssinaturaNS(nfeAssinado, "<infNFe ", nsNFe, c)
+}
+
+// VerificarAssinaturaNS é a verificação genérica: tagInicio é a abertura do
+// elemento assinado com o espaço final (ex "<infMDFe ") e ns o namespace default.
+func VerificarAssinaturaNS(nfeAssinado []byte, tagInicio, ns string, c *cert.Certificado) error {
+	infNFeC14N, refURI, err := extrairElementoC14N(nfeAssinado, []byte(tagInicio), ns)
 	if err != nil {
 		return fmt.Errorf("verificar: %w", err)
 	}
@@ -228,4 +262,17 @@ func extrairTagConteudo(xmlBytes []byte, tag string) string {
 		return ""
 	}
 	return string(xmlBytes[ini : ini+fim])
+}
+
+// AssinarQRCodeContingencia devolve a RSA-SHA1 da chave de acesso em base64: o
+// parâmetro `sign` do QR Code do MDF-e emitido em contingência (tpEmis=2, MOC 3.00b).
+func AssinarQRCodeContingencia(chave string, c *cert.Certificado) (string, error) {
+	if len(chave) != 44 {
+		return "", fmt.Errorf("sign: chave deve ter 44 caracteres")
+	}
+	sig, err := assinarRSASHA1(c.Chave, []byte(chave))
+	if err != nil {
+		return "", fmt.Errorf("sign: RSA-SHA1: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(sig), nil
 }
