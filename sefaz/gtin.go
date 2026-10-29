@@ -17,10 +17,8 @@ import (
 // "Web Service - Consulta GTIN". Serviço único no SVRS, só produção, síncrono,
 // com TLS mútuo: o certificado tem de ser de um emitente de NF-e/NFC-e.
 //
-// Não confirmado por WSDL: o namespace do nfeDadosMsg e a SOAPAction abaixo
-// seguem o padrão dos demais serviços (portalfiscal.inf.br/nfe/wsdl/<serviço>/
-// <método>). O ?wsdl do SVRS devolve 403 sem certificado, então conferir no
-// primeiro uso real. Se vier HTTP 500/fault, é o primeiro suspeito.
+// Conferido no WSDL do SVRS em 29/10/2026: namespace e SOAPAction abaixo
+// (o ?wsdl só abre com certificado). 1ª consulta real voltou retConsGTIN.
 const (
 	nsWSDLConsultaGTIN     = "http://www.portalfiscal.inf.br/nfe/wsdl/ccgConsGtin"
 	soapActionConsultaGTIN = nsWSDLConsultaGTIN + "/ccgConsGTIN"
@@ -161,11 +159,14 @@ func ConsultarGTIN(ctx context.Context, tlsConfig *tls.Config, gtin string) (Ret
 		return RetornoGTIN{}, err
 	}
 
-	body := `<nfeDadosMsg xmlns="` + nsWSDLConsultaGTIN + `">` +
+	// WSDL (conferido 29/10/2026 com A1 real): estilo document "wrapped" —
+	// <ccgConsGTIN><nfeDadosMsg>…</nfeDadosMsg></ccgConsGTIN>. Sem o wrapper o
+	// SVRS responde <ccgConsGTINResponse/> vazio.
+	body := `<ccgConsGTIN xmlns="` + nsWSDLConsultaGTIN + `"><nfeDadosMsg>` +
 		`<consGTIN versao="` + versaoConsGTIN + `" xmlns="http://www.portalfiscal.inf.br/nfe">` +
 		`<GTIN>` + g + `</GTIN>` +
 		`</consGTIN>` +
-		`</nfeDadosMsg>`
+		`</nfeDadosMsg></ccgConsGTIN>`
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, urlConsultaGTIN, bytes.NewReader(envelopar(body)))
 	if err != nil {

@@ -106,7 +106,7 @@ func TestConsultarGTIN_Sucesso(t *testing.T) {
 	if !strings.Contains(corpo, `<consGTIN versao="1.00" xmlns="http://www.portalfiscal.inf.br/nfe"><GTIN>`+gtin+`</GTIN></consGTIN>`) {
 		t.Errorf("corpo sem consGTIN esperado: %s", corpo)
 	}
-	if !strings.Contains(corpo, `<nfeDadosMsg xmlns="`+nsWSDLConsultaGTIN+`">`) {
+	if !strings.Contains(corpo, `<ccgConsGTIN xmlns="`+nsWSDLConsultaGTIN+`"><nfeDadosMsg>`) {
 		t.Errorf("corpo sem nfeDadosMsg: %s", corpo)
 	}
 	if action != soapActionConsultaGTIN || !strings.Contains(ct, `action="`+soapActionConsultaGTIN+`"`) {
