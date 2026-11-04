@@ -222,6 +222,11 @@ type EntradaIBSCBS struct {
 }
 
 type EntradaICMS struct {
+	// Orig é a origem da mercadoria (tabela A do Anexo do Convênio s/n de
+	// 1970, campo orig): "0".."8". Vazio = "0" (nacional). Vale para CST e
+	// CSOSN. Com CST de 3 dígitos ("200"), o 1º dígito vira a origem quando
+	// Orig está vazio; Orig preenchido tem prioridade.
+	Orig string
 	// Regime Normal
 	CST    string  // "00", "20", "40", "60", "90"
 	ModBC  string  // "3" = valor da operação
@@ -1014,6 +1019,21 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 	imp := Imposto{}
 
 	icms := &ICMS{}
+	orig := strings.TrimSpace(item.ICMS.Orig)
+	cst := item.ICMS.CST
+	if len(cst) == 3 && cst[0] >= '0' && cst[0] <= '8' && crt != "1" && crt != "2" {
+		// "200" = origem 2 + CST 00 (formato de tabela de contador / DANFE)
+		if orig == "" {
+			orig = cst[:1]
+		}
+		cst = cst[1:]
+	}
+	if orig == "" {
+		orig = "0"
+	}
+	if len(orig) != 1 || orig[0] < '0' || orig[0] > '8' {
+		return Imposto{}, totaisItem{}, fmt.Errorf("builder: origem da mercadoria %q inválida (item %q) — use 0 a 8", item.ICMS.Orig, item.CProd)
+	}
 	// Simples Nacional (CRT 1 ou 2)
 	if crt == "1" || crt == "2" {
 		csosn := item.ICMS.CSOSN
@@ -1037,12 +1057,12 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 				return Imposto{}, totaisItem{}, fmt.Errorf("builder: CSOSN 101 exige a alíquota de crédito do Simples em ICMS.Aliq (item %q)", item.CProd)
 			}
 			icms.ICMSSN101 = &ICMSSN101{
-				Orig: "0", CSOSN: "101",
+				Orig: orig, CSOSN: "101",
 				PCredSN:     fmtVal(item.ICMS.Aliq),
 				VCredICMSSN: fmtVal(vProd * item.ICMS.Aliq / 100),
 			}
 		case "102", "103", "300", "400":
-			icms.ICMSSN102 = &ICMSSN102{Orig: "0", CSOSN: csosn}
+			icms.ICMSSN102 = &ICMSSN102{Orig: orig, CSOSN: csosn}
 		case "201", "202":
 			if item.ICMS.AliqST <= 0 {
 				return Imposto{}, totaisItem{}, fmt.Errorf("builder: CSOSN %s exige a alíquota ST em ICMS.AliqST (item %q)", csosn, item.CProd)
@@ -1058,7 +1078,7 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 					return Imposto{}, totaisItem{}, fmt.Errorf("builder: CSOSN 201 exige a alíquota de crédito em ICMS.Aliq (item %q)", item.CProd)
 				}
 				icms.ICMSSN201 = &ICMSSN201{
-					Orig: "0", CSOSN: csosn, ModBCST: modBCST,
+					Orig: orig, CSOSN: csosn, ModBCST: modBCST,
 					PMVAST: fmtVal(item.ICMS.PMVAST), VBCST: fmtVal(vBCST),
 					PICMSST: fmtVal(item.ICMS.AliqST), VICMSST: fmtVal(vICMSST),
 					PCredSN: fmtVal(item.ICMS.Aliq), VCredICMSSN: fmtVal(vProd * item.ICMS.Aliq / 100),
@@ -1066,7 +1086,7 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 				tot.vBCST, tot.vICMSST = vBCST, vICMSST
 			} else {
 				icms.ICMSSN202 = &ICMSSN202{
-					Orig: "0", CSOSN: csosn, ModBCST: modBCST,
+					Orig: orig, CSOSN: csosn, ModBCST: modBCST,
 					PMVAST: fmtVal(item.ICMS.PMVAST), VBCST: fmtVal(vBCST),
 					PICMSST: fmtVal(item.ICMS.AliqST), VICMSST: fmtVal(vICMSST),
 				}
@@ -1077,7 +1097,7 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 			// tributada -- bebida, autopeça, etc). Valores vêm da nota de
 			// entrada do fornecedor.
 			icms.ICMSSN500 = &ICMSSN500{
-				Orig: "0", CSOSN: "500",
+				Orig: orig, CSOSN: "500",
 				VBCSTRet:   fmtVal(item.ICMS.VBCSTRet),
 				PST:        fmtVal(item.ICMS.PST),
 				VICMSSTRet: fmtVal(item.ICMS.VICMSSTRet),
@@ -1099,15 +1119,11 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 	}
 
 	// Regime Normal (CRT 3)
-	cst := item.ICMS.CST
 	if cst == "" {
 		cst = "00"
 	}
-	switch {
-	case len(cst) == 1: // "0" digitado no lugar de "00": leitura única
+	if len(cst) == 1 { // "0" digitado no lugar de "00": leitura única
 		cst = "0" + cst
-	case len(cst) == 3 && cst[0] == '0': // "060" = origem 0 + CST 60 (formato de tabela de contador)
-		cst = cst[1:]
 	}
 	vProd := item.Quantidade * item.VUnitario
 	tot := totaisItem{}
@@ -1117,7 +1133,7 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 		vBC := vProd
 		vICMS := vBC * item.ICMS.Aliq / 100
 		icms.ICMS00 = &ICMS00{
-			Orig: "0", CST: "00", ModBC: "3",
+			Orig: orig, CST: "00", ModBC: "3",
 			VBC: fmtVal(vBC), PICMS: fmtVal(item.ICMS.Aliq), VICMS: fmtVal(vICMS),
 		}
 		tot.vBC, tot.vICMS = vBC, vICMS
@@ -1134,17 +1150,17 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 			vICMSST = 0
 		}
 		icms.ICMS10 = &ICMS10{
-			Orig: "0", CST: "10", ModBC: "3",
+			Orig: orig, CST: "10", ModBC: "3",
 			VBC: fmtVal(vBC), PICMS: fmtVal(item.ICMS.Aliq), VICMS: fmtVal(vICMS),
 			ModBCST: modBCST, PMVAST: fmtVal(item.ICMS.PMVAST),
 			VBCST: fmtVal(vBCST), PICMSST: fmtVal(item.ICMS.AliqST), VICMSST: fmtVal(vICMSST),
 		}
 		tot.vBC, tot.vICMS, tot.vBCST, tot.vICMSST = vBC, vICMS, vBCST, vICMSST
 	case "40", "41", "50":
-		icms.ICMS40 = &ICMS40{Orig: "0", CST: cst}
+		icms.ICMS40 = &ICMS40{Orig: orig, CST: cst}
 	case "60":
 		icms.ICMS60 = &ICMS60{
-			Orig:       "0",
+			Orig:       orig,
 			CST:        "60",
 			VBCSTRet:   fmtVal(item.ICMS.VBCSTRet),
 			PST:        fmtVal(item.ICMS.PST),
@@ -1154,7 +1170,7 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 		vBC := vProd * (1 - item.ICMS.PRedBC/100)
 		vICMS := vBC * item.ICMS.Aliq / 100
 		icms.ICMS20 = &ICMS20{
-			Orig: "0", CST: "20", ModBC: "3",
+			Orig: orig, CST: "20", ModBC: "3",
 			PRedBC: fmtVal(item.ICMS.PRedBC), VBC: fmtVal(vBC),
 			PICMS: fmtVal(item.ICMS.Aliq), VICMS: fmtVal(vICMS),
 		}
