@@ -55,6 +55,21 @@ type DocDFe struct {
 	XML []byte
 }
 
+// ErroDistribuicao é a rejeição do NFeDistribuicaoDFe (cStat fora de 137/138), com o ultNSU e o maxNSU
+// da resposta. No 656 ("Deve ser utilizado o ultNSU nas solicitacoes subsequentes") o ultNSU é o último
+// NSU que o Ambiente Nacional já entregou ao CNPJ — inclusive a outro sistema. Pedir de novo com um ultNSU
+// menor leva 656 para sempre; o consumidor tem de continuar deste ultNSU. Error() mantém o texto antigo.
+type ErroDistribuicao struct {
+	CStat   string
+	XMotivo string
+	UltNSU  string
+	MaxNSU  string
+}
+
+func (e *ErroDistribuicao) Error() string {
+	return fmt.Sprintf("sefaz: distribuicao DFe rejeitada: cStat=%s xMotivo=%s", e.CStat, e.XMotivo)
+}
+
 // RetornoDistribuicao é o retorno do NFeDistribuicaoDFe.
 type RetornoDistribuicao struct {
 	RetornoSEFAZ
@@ -119,7 +134,11 @@ func (cl *Cliente) chamarDistribuicao(ctx context.Context, cnpj, corpoConsulta s
 	if err != nil {
 		return nil, err
 	}
+	return lerRetornoDistribuicao(respBody)
+}
 
+// lerRetornoDistribuicao interpreta o envelope SOAP do NFeDistribuicaoDFe.
+func lerRetornoDistribuicao(respBody []byte) (*RetornoDistribuicao, error) {
 	inner, err := extrairEnvelope(respBody)
 	if err != nil {
 		return nil, err
@@ -167,7 +186,7 @@ func (cl *Cliente) chamarDistribuicao(ctx context.Context, cnpj, corpoConsulta s
 	// cStat de sucesso do serviço. Qualquer outro é rejeição (ex: 215 "Falha no
 	// esquema xml") e não pode virar retorno vazio silencioso.
 	if ret.CStat != "137" && ret.CStat != "138" {
-		return nil, fmt.Errorf("sefaz: distribuicao DFe rejeitada: cStat=%s xMotivo=%s", ret.CStat, ret.XMotivo)
+		return nil, &ErroDistribuicao{CStat: ret.CStat, XMotivo: ret.XMotivo, UltNSU: ret.UltNSU, MaxNSU: ret.MaxNSU}
 	}
 	docs := make([]DocDFe, 0, len(ret.Lote.Docs))
 	for _, d := range ret.Lote.Docs {
