@@ -170,28 +170,31 @@ type Detalhe struct {
 }
 
 type Produto struct {
-	CProd    string `xml:"cProd"`
-	CEAN     string `xml:"cEAN"` // "SEM GTIN" se não houver
-	XProd    string `xml:"xProd"`
-	NCM      string `xml:"NCM"`
-	CEST     string `xml:"CEST,omitempty"`
-	CBenef   string `xml:"cBenef,omitempty"` // código de benefício fiscal (Convênio ICMS 190/17), tabela por UF
-	CFOP     string `xml:"CFOP"`
-	UCom     string `xml:"uCom"`
-	QCom     string `xml:"qCom"`
-	VUnCom   string `xml:"vUnCom"`
-	VProd    string `xml:"vProd"`
-	CEANTrib string `xml:"cEANTrib"` // "SEM GTIN" se não houver
-	UTrib    string `xml:"uTrib"`
-	QTrib    string `xml:"qTrib"`
-	VUnTrib  string `xml:"vUnTrib"`
-	VFrete   string `xml:"vFrete,omitempty"`
-	VSeg     string `xml:"vSeg,omitempty"`
-	VDesc    string `xml:"vDesc,omitempty"`
-	VOutro   string `xml:"vOutro,omitempty"`
-	IndTot   string `xml:"indTot"` // 1=compõe total da NF-e
-	XPed     string `xml:"xPed,omitempty"`
-	NItemPed string `xml:"nItemPed,omitempty"`
+	CProd  string `xml:"cProd"`
+	CEAN   string `xml:"cEAN"` // "SEM GTIN" se não houver
+	XProd  string `xml:"xProd"`
+	NCM    string `xml:"NCM"`
+	CEST   string `xml:"CEST,omitempty"`
+	CBenef string `xml:"cBenef,omitempty"` // código de benefício fiscal (Convênio ICMS 190/17), tabela por UF
+	CFOP   string `xml:"CFOP"`
+	UCom   string `xml:"uCom"`
+	QCom   string `xml:"qCom"`
+	VUnCom string `xml:"vUnCom"`
+	VProd  string `xml:"vProd"`
+	// I11a (NT 2026.008): sequência opcional logo após vProd; os dois juntos ou nenhum.
+	VUnComLiq string `xml:"vUnComLiq,omitempty"`
+	VProdLiq  string `xml:"vProdLiq,omitempty"`
+	CEANTrib  string `xml:"cEANTrib"` // "SEM GTIN" se não houver
+	UTrib     string `xml:"uTrib"`
+	QTrib     string `xml:"qTrib"`
+	VUnTrib   string `xml:"vUnTrib"`
+	VFrete    string `xml:"vFrete,omitempty"`
+	VSeg      string `xml:"vSeg,omitempty"`
+	VDesc     string `xml:"vDesc,omitempty"`
+	VOutro    string `xml:"vOutro,omitempty"`
+	IndTot    string `xml:"indTot"` // 1=compõe total da NF-e
+	XPed      string `xml:"xPed,omitempty"`
+	NItemPed  string `xml:"nItemPed,omitempty"`
 }
 
 // ── Impostos ─────────────────────────────────────────────────────────────────
@@ -600,8 +603,10 @@ type COFINSOutr struct {
 // ── Total ─────────────────────────────────────────────────────────────────────
 
 type Total struct {
-	ICMSTot   ICMSTot    `xml:"ICMSTot"`
-	IBSCBSTot *IBSCBSTot `xml:"IBSCBSTot,omitempty"`
+	// W01a (NT 2026.008, #326a): filho de total ANTES do ICMSTot, não dentro dele.
+	VProdLiqTot string     `xml:"vProdLiqTot,omitempty"`
+	ICMSTot     ICMSTot    `xml:"ICMSTot"`
+	IBSCBSTot   *IBSCBSTot `xml:"IBSCBSTot,omitempty"`
 }
 
 // IBSCBSTot — grupo W03/W34 da NT 2025.002-RTC: somatório dos itens com

@@ -29,6 +29,21 @@ const (
 	QRVersao3 = "3"
 )
 
+// inicioValorLiquidoProducao: entrada em produção da NT 2026.008 v1.00. Antes
+// disso o schema de produção não tem os campos e a SEFAZ rejeita com 225.
+var inicioValorLiquidoProducao = time.Date(2026, 11, 3, 0, 0, 0, 0, time.FixedZone("BRT", -3*3600))
+
+// gerarValorLiquido decide itens e total juntos: nunca um sem o outro.
+func gerarValorLiquido(e EntradaNFe) bool {
+	switch e.ValorLiquido {
+	case "sim":
+		return true
+	case "nao":
+		return false
+	}
+	return e.TpAmb != "1" || !e.DhEmi.Before(inicioValorLiquidoProducao)
+}
+
 // ── Input ─────────────────────────────────────────────────────────────────────
 // EntradaNFe é a struct de alto nível que o caller preenche.
 // O builder converte ela para NFe (schema SEFAZ).
@@ -60,6 +75,11 @@ type EntradaNFe struct {
 	// QRVersao escolhe o leiaute do QR Code: "2" (padrão, exige CSC/CSCId) ou
 	// "3" (sem CSC; contingência offline assinada pelo certificado).
 	QRVersao string
+
+	// ValorLiquido controla vUnComLiq/vProdLiq/vProdLiqTot (NT 2026.008):
+	// "" = automático (homologação sempre; produção a partir de
+	// 03/11/2026 00:00 -03:00), "sim" força, "nao" suprime.
+	ValorLiquido string
 
 	// Referência à NF-e original — obrigatório quando FinNFe="2" (complementar) ou "4" (devolução)
 	ChaveNFeRef string // chave de acesso 44 dígitos da NF-e referenciada
@@ -494,7 +514,7 @@ func montarNFe(e EntradaNFe, chave ChaveAcesso) (NFe, error) {
 			Dest:   dest,
 			AutXML: montarAutXML(e.AutXML),
 			Det:    detalhes,
-			Total:  Total{ICMSTot: totais, IBSCBSTot: ibscbsTot},
+			Total:  Total{VProdLiqTot: somarVProdLiq(detalhes), ICMSTot: totais, IBSCBSTot: ibscbsTot},
 			Transp: montarTransporte(e.Frete, modFrete),
 			Cobr:   montarCobranca(e.Cobranca),
 			Pag:    montarPagamento(e.Pagamento),
@@ -834,6 +854,11 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 			Imposto: imp,
 		}
 
+		if gerarValorLiquido(e) {
+			// Até 2026 vProd não contém IBS/CBS/IS: líquido = bruto (NT 2026.008).
+			det.Prod.VUnComLiq = det.Prod.VUnCom
+			det.Prod.VProdLiq = det.Prod.VProd
+		}
 		if e.Frete.VFrete > 0 {
 			det.Prod.VFrete = fmtVal(float64(rateioFrete[i]) / 100)
 		}
@@ -1437,6 +1462,9 @@ func validarEntrada(e EntradaNFe) error {
 	if e.Mod == ModeloNFCe && e.IndPres != "" && e.IndPres != "1" && e.IndPres != "4" {
 		return fmt.Errorf("NFC-e só pode ser venda presencial (1) ou entrega em domicílio (4), veio indPres=%s", e.IndPres)
 	}
+	if e.ValorLiquido != "" && e.ValorLiquido != "sim" && e.ValorLiquido != "nao" {
+		return fmt.Errorf("ValorLiquido %q inválido (use \"\", \"sim\" ou \"nao\")", e.ValorLiquido)
+	}
 	if e.Mod == ModeloNFCe && e.QRVersao != "" && e.QRVersao != QRVersao2 && e.QRVersao != QRVersao3 {
 		return fmt.Errorf("NFC-e: QRVersao %q inválida (use \"2\" ou \"3\")", e.QRVersao)
 	}
@@ -1477,6 +1505,21 @@ func validarEntrada(e EntradaNFe) error {
 		return err
 	}
 	return validarCobranca(e)
+}
+
+// somarVProdLiq soma os vProdLiq já formatados, em centavos: a regra 1283
+// (W01a-20) compara com a soma dos itens, não com a soma float crua.
+// Vazio quando os itens não levam vProdLiq.
+func somarVProdLiq(detalhes []Detalhe) string {
+	if len(detalhes) == 0 || detalhes[0].Prod.VProdLiq == "" {
+		return ""
+	}
+	centavos := int64(0)
+	for _, d := range detalhes {
+		v, _ := strconv.ParseFloat(d.Prod.VProdLiq, 64)
+		centavos += int64(math.Round(v * 100))
+	}
+	return fmtVal(float64(centavos) / 100)
 }
 
 // ── Helpers de formatação ─────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -26,6 +27,40 @@ for e in sch.error_log:
 
 func validarXSD(t *testing.T, xmlBytes []byte) {
 	t.Helper()
+	validarXSDEm(t, xmlBytes, filepath.Join("testdata", "xsd"))
+}
+
+// xsdOriginal monta numa pasta temporária o PL_010 v1.30 sem o patch local da
+// NT 2026.008 (os blocos "patch local" do leiaute), para provar que o XML sem
+// os campos novos passa no schema que a produção usa antes de 03/11/2026.
+func xsdOriginal(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	arqs, err := filepath.Glob(filepath.Join("testdata", "xsd", "*.xsd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch := regexp.MustCompile(`(?s)[ \t]*<!-- patch local NT 2026\.008[^>]*-->\r?\n(?:[ \t]*<xs:sequence minOccurs="0">.*?</xs:sequence>|[ \t]*<xs:element name="vProdLiqTot"[^>]*/>)\r?\n`)
+	for _, arq := range arqs {
+		b, err := os.ReadFile(arq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasPrefix(filepath.Base(arq), "leiauteNFe") {
+			if n := len(patch.FindAll(b, -1)); n != 2 {
+				t.Fatalf("esperava 2 blocos do patch local em %s, achei %d", arq, n)
+			}
+			b = patch.ReplaceAll(b, nil)
+		}
+		if err := os.WriteFile(filepath.Join(dir, filepath.Base(arq)), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func validarXSDEm(t *testing.T, xmlBytes []byte, dirXSD string) {
+	t.Helper()
 	py := ""
 	for _, cand := range []string{"python3", "python"} {
 		if p, err := exec.LookPath(cand); err == nil && exec.Command(p, "-c", "import lxml").Run() == nil {
@@ -41,7 +76,7 @@ func validarXSD(t *testing.T, xmlBytes []byte) {
 	if err := os.WriteFile(arq, xmlBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	saida, err := exec.Command(py, "-c", scriptXSD, filepath.Join("testdata", "xsd", "nfe_v4.00.xsd"), arq).CombinedOutput()
+	saida, err := exec.Command(py, "-c", scriptXSD, filepath.Join(dirXSD, "nfe_v4.00.xsd"), arq).CombinedOutput()
 	if err != nil {
 		t.Fatalf("validador: %v\n%s", err, saida)
 	}

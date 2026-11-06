@@ -1060,6 +1060,11 @@ Formato ”CFOP9999”.</xs:documentation>
 														<xs:documentation>Valor bruto do produto ou serviço.</xs:documentation>
 													</xs:annotation>
 												</xs:element>
+												<!-- patch local NT 2026.008 v1.00 p.6 (I11a), sem PL oficial ainda: trocar pelo pacote da SEFAZ quando sair -->
+												<xs:sequence minOccurs="0">
+													<xs:element name="vUnComLiq" type="TDec_1110v"/>
+													<xs:element name="vProdLiq" type="TDec_1302"/>
+												</xs:sequence>
 												<xs:element name="cEANTrib">
 													<xs:annotation>
 														<xs:documentation>GTIN (Global Trade Item Number) da unidade tributável, antigo código EAN ou código de barras</xs:documentation>
@@ -5336,6 +5341,8 @@ Substituição Tributaria;</xs:documentation>
 							</xs:annotation>
 							<xs:complexType>
 								<xs:sequence>
+									<!-- patch local NT 2026.008 v1.00 p.6 (W01a, #326a, pai W01) -->
+									<xs:element name="vProdLiqTot" type="TDec_1302" minOccurs="0"/>
 									<xs:element name="ICMSTot">
 										<xs:annotation>
 											<xs:documentation>Totais referentes ao ICMS</xs:documentation>
