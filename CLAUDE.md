@@ -5,7 +5,7 @@ API de terceiro** (Focus NFe, eNotas, etc.). Constrói, assina, transmite à
 SEFAZ e gera o DANFE.
 
 - Módulo: `github.com/engmarcosdeogenes/nfe-go` · Go 1.25
-- Cobre: NF-e 4.0 (modelo 55) e NFC-e (modelo 65) — **só mercadoria**
+- Cobre: NF-e 4.0 (modelo 55), NFC-e (modelo 65) e MDF-e 3.00 (modelo 58) — **só mercadoria**
 - Consumida por: [[notas-fiscais]] (SaaS fiscal) e o ERP [[MetalurgicaBase]]
 - Desenhada como lib reutilizável — nenhum acoplamento a projeto consumidor
 
@@ -18,6 +18,8 @@ SEFAZ e gera o DANFE.
 | `cert/` | Carrega certificado A1 (`.pfx` / PKCS12) e monta o `tls.Config` para TLS mútuo com a SEFAZ. Raiz ICP-Brasil embutida (`//go:embed`). |
 | `sefaz/` | Cliente SOAP: `autorizacao`, `cadastro` (consulta), `contingencia` (FS-DA), `distribuicao` (DistDFe), `epec`, `eventos` (CC-e, cancelamento, manifestação...). `endpoints.go` mapeia URL por UF/ambiente; `client.go` mapeia SOAPAction por serviço. |
 | `danfe/` | Gera o DANFE em PDF (retrato A4) e o cupom NFC-e a partir do XML autorizado. `danfe.Gerar(nfeXML) → []byte`. O cupom NFC-e (`GerarDANFENFCe`, `nfce.go`) segue o Manual DANFE NFC-e e QR Code v6.0 (divisões I a IX); o QR Code do builder tem versão 2.00 (padrão, com CSC) e 3.00 (`EntradaNFe.QRVersao="3"`, sem CSC). `parser.go` desserializa o XML de volta. **A geometria do DANFE A4 é normativa**: `layout_anexo2.go` transcreve a tabela de coordenadas e os tamanhos mínimos de fonte do MOC 7.0 Anexo II (§3.7 e §3.8.1), e `render_anexo2.go` desenha em cima dela — não mudar posição, largura ou tamanho de fonte sem conferir a seção citada no comentário. O PDF do manual está em `notas-fiscais/docs sefaz/ANEXO II -Manual EspecificaçõesTécnicas - Danfe-Código-Barras.pdf`. |
+| `mdfe/` | MDF-e 58 (rodoviário, leiaute 3.00): `Build(Entrada)` → XML + chave; `Cliente` SVRS (`NovoCliente`: Autorizar, consultas, status, não encerrados); eventos (encerrar, cancelar, condutor, inclusão de DF-e, pagamento, confirmação); contingência (`tpEmis=2` + QR Code com `sign`). Assina com `sign.AssinarMDFe`/`AssinarEventoMDFe`. Autor de evento é o CNPJ da chave; emitente CPF usa `UsarAutorCPF`. **SOAPAction MDF-e não confirmada por WSDL (exige mTLS); confirmar no 1º teste com certificado em homologação.** |
+| `mdfe/damdfe/` | DAMDFE em PDF A4 a partir do `mdfeProc`: `damdfe.Gerar(xml, damdfe.Opcoes{})`. |
 
 Deps diretas: `go-pdf/fpdf` (PDF), `boombuler/barcode` + `skip2/go-qrcode`
 (código de barras / QR NFC-e), `sslmate/go-pkcs12` (A1).
