@@ -68,6 +68,19 @@ type DadosDANFE struct {
 	VFCPUFDest   float64
 	VICMSUFDest  float64
 
+	// Totais da reforma tributária (NT 2026.010 §4.1). Ficam como texto cru
+	// do XML, não float: §4.4 manda deixar o campo em branco quando a tag
+	// não existe, e float não distingue "ausente" de "0,00".
+	VCBSTot          string // vCBS - W56
+	VIBSUFTot        string // vIBSUF - W41
+	VIBSMunTot       string // vIBSMun - W46
+	VISTot           string // vIS - W33
+	TemMono          bool   // gMono - W57 informado
+	VIBSMonoTot      string // vIBSMono - W58
+	VCBSMonoTot      string // vCBSMono - W59
+	VIBSMonoRetenTot string // vIBSMonoReten - W59a
+	VCBSMonoRetenTot string // vCBSMonoReten - W59b
+
 	// Transporte
 	ModFrete  string
 	TranspNome string
@@ -128,6 +141,22 @@ type itemDANFE struct {
 	AliqICMS  float64
 	IPI       float64
 	AliqIPI   float64
+
+	// Reforma tributária (NT 2026.010 §4.3). TemIBSCBS/TemIS dizem se o
+	// grupo veio no XML; sem eles a linha do item sai como antes.
+	TemIBSCBS  bool
+	ClassTrib  string  // cClassTrib - UB14
+	VBCIBSCBS  float64 // vBC - UB16
+	AliqIBSUF  float64 // pIBSUF - UB18, ou pAliqEfet - UB28 com gRed
+	VIBSUF     float64 // UB35
+	AliqIBSMun float64 // pIBSMun - UB37, ou pAliqEfet - UB47 com gRed
+	VIBSMun    float64 // UB54
+	AliqCBS    float64 // pCBS - UB56, ou pAliqEfet - UB66 com gRed
+	VCBS       float64 // UB67
+	TemIS      bool
+	VBCIS      float64 // UB05
+	AliqIS     float64 // pIS - UB06
+	VIS        float64 // UB11
 }
 
 type pagtoDANFE struct {
@@ -176,6 +205,19 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 	// identifica o código de verdade é o filho, não o nome da tag). Sem isso o
 	// item.CST nunca era preenchido — a versão antiga só tinha `pICMS`
 	// (alíquota, mal nomeado "PCST") pra 2 das 12 variantes.
+	// xmlAliqRTC lê gIBSUF/gIBSMun/gCBS: os três têm a mesma forma, só muda
+	// o nome da alíquota e do valor (p/vIBSUF, p/vIBSMun, p/vCBS).
+	type xmlAliqRTC struct {
+		PIBSUF  string `xml:"pIBSUF"`
+		PIBSMun string `xml:"pIBSMun"`
+		PCBS    string `xml:"pCBS"`
+		VIBSUF  string `xml:"vIBSUF"`
+		VIBSMun string `xml:"vIBSMun"`
+		VCBS    string `xml:"vCBS"`
+		GRed    *struct {
+			PAliqEfet string `xml:"pAliqEfet"`
+		} `xml:"gRed"`
+	}
 	type xmlImposto struct {
 		ICMS struct {
 			// CEST só existe de fato em variante sujeita a ST (10/30/60/70/90 e
@@ -217,6 +259,23 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			PIPI string `xml:"IPITrib>pIPI"`
 			VIPI string `xml:"IPITrib>vIPI"`
 		} `xml:"IPI"`
+		// Nomes de tag de builder/tipos.go (NT 2025.002-RTC). O IS não é
+		// montado pelo builder ainda, mas o DANFE imprime XML de qualquer
+		// emissor.
+		IS *struct {
+			VBCIS string `xml:"vBCIS"`
+			PIS   string `xml:"pIS"`
+			VIS   string `xml:"vIS"`
+		} `xml:"IS"`
+		IBSCBS *struct {
+			ClassTrib string `xml:"cClassTrib"`
+			GIBSCBS   *struct {
+				VBC     string     `xml:"vBC"`
+				GIBSUF  xmlAliqRTC `xml:"gIBSUF"`
+				GIBSMun xmlAliqRTC `xml:"gIBSMun"`
+				GCBS    xmlAliqRTC `xml:"gCBS"`
+			} `xml:"gIBSCBS"`
+		} `xml:"IBSCBS"`
 	}
 	type xmlDet struct {
 		NItem string `xml:"nItem,attr"`
@@ -321,6 +380,18 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 					VFCPUFDest   string `xml:"vFCPUFDest"`
 					VICMSUFDest  string `xml:"vICMSUFDest"`
 				} `xml:"ICMSTot"`
+				IBSCBSTot *struct {
+					VIBSUF  string `xml:"gIBS>gIBSUF>vIBSUF"`
+					VIBSMun string `xml:"gIBS>gIBSMun>vIBSMun"`
+					VCBS    string `xml:"gCBS>vCBS"`
+					GMono   *struct {
+						VIBSMono      string `xml:"vIBSMono"`
+						VCBSMono      string `xml:"vCBSMono"`
+						VIBSMonoReten string `xml:"vIBSMonoReten"`
+						VCBSMonoReten string `xml:"vCBSMonoReten"`
+					} `xml:"gMono"`
+				} `xml:"IBSCBSTot"`
+				VIS string `xml:"ISTot>vIS"`
 			} `xml:"total"`
 			Transp xmlTransp `xml:"transp"`
 			Pag    xmlPag    `xml:"pag"`
@@ -411,6 +482,15 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 	d.VICMSUFRemet = parseFloat(inf.Total.ICMSTot.VICMSUFRemet)
 	d.VFCPUFDest = parseFloat(inf.Total.ICMSTot.VFCPUFDest)
 	d.VICMSUFDest = parseFloat(inf.Total.ICMSTot.VICMSUFDest)
+	d.VISTot = inf.Total.VIS
+	if t := inf.Total.IBSCBSTot; t != nil {
+		d.VCBSTot, d.VIBSUFTot, d.VIBSMunTot = t.VCBS, t.VIBSUF, t.VIBSMun
+		if m := t.GMono; m != nil {
+			d.TemMono = true
+			d.VIBSMonoTot, d.VCBSMonoTot = m.VIBSMono, m.VCBSMono
+			d.VIBSMonoRetenTot, d.VCBSMonoRetenTot = m.VIBSMonoReten, m.VCBSMonoReten
+		}
+	}
 
 	// Transporte
 	d.ModFrete = inf.Transp.ModFrete
@@ -517,6 +597,25 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			item.IPI = parseFloat(imp.IPI.VIPI)
 			item.AliqIPI = parseFloat(imp.IPI.PIPI)
 		}
+		if imp.IS != nil {
+			item.TemIS = true
+			item.VBCIS = parseFloat(imp.IS.VBCIS)
+			item.AliqIS = parseFloat(imp.IS.PIS)
+			item.VIS = parseFloat(imp.IS.VIS)
+		}
+		if ib := imp.IBSCBS; ib != nil {
+			item.TemIBSCBS = true
+			item.ClassTrib = ib.ClassTrib
+			if g := ib.GIBSCBS; g != nil {
+				item.VBCIBSCBS = parseFloat(g.VBC)
+				item.AliqIBSUF = aliqRTC(g.GIBSUF.PIBSUF, g.GIBSUF.GRed)
+				item.VIBSUF = parseFloat(g.GIBSUF.VIBSUF)
+				item.AliqIBSMun = aliqRTC(g.GIBSMun.PIBSMun, g.GIBSMun.GRed)
+				item.VIBSMun = parseFloat(g.GIBSMun.VIBSMun)
+				item.AliqCBS = aliqRTC(g.GCBS.PCBS, g.GCBS.GRed)
+				item.VCBS = parseFloat(g.GCBS.VCBS)
+			}
+		}
 		d.Itens = append(d.Itens, item)
 	}
 
@@ -524,6 +623,17 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// aliqRTC aplica a observação do §4.3 da NT 2026.010: com gRed informado o
+// DANFE mostra a alíquota efetiva (pAliqEfet), não a vigente.
+func aliqRTC(vigente string, gRed *struct {
+	PAliqEfet string `xml:"pAliqEfet"`
+}) float64 {
+	if gRed != nil {
+		return parseFloat(gRed.PAliqEfet)
+	}
+	return parseFloat(vigente)
+}
 
 func parseFloat(s string) float64 {
 	if s == "" {
