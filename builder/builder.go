@@ -1245,10 +1245,16 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 		aliqEfetMun := ib.AliqIBSMun * fatorRed
 		aliqEfetCBS := ib.AliqCBS * fatorRed
 
-		vIBSUF := vBCIBSCBS * aliqEfetUF / 100
-		vIBSMun := vBCIBSCBS * aliqEfetMun / 100
-		vIBS := vIBSUF + vIBSMun
-		vCBS := vBCIBSCBS * aliqEfetCBS / 100
+		// Cada valor do item é arredondado a centavos ANTES de entrar no
+		// total: a SEFAZ soma os valores impressos nos itens e compara com
+		// o W03. Somar o valor cru dá diferença de centavos entre o total e
+		// a soma dos itens (cStat=1080 "Total de IBS UF difere da soma dos
+		// itens"; NF-e 109 da ATUAR, 16 itens: itens 21,31 x total 21,29,
+		// 06/11/2026).
+		vIBSUF := arred2(vBCIBSCBS * aliqEfetUF / 100)
+		vIBSMun := arred2(vBCIBSCBS * aliqEfetMun / 100)
+		vIBS := arred2(vIBSUF + vIBSMun)
+		vCBS := arred2(vBCIBSCBS * aliqEfetCBS / 100)
 
 		gIBSUF := GIBSUF{PIBSUF: fmtVal(ib.AliqIBSUF), VIBSUF: fmtVal(vIBSUF)}
 		gIBSMun := GIBSMun{PIBSMun: fmtVal(ib.AliqIBSMun), VIBSMun: fmtVal(vIBSMun)}
@@ -1276,6 +1282,10 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 }
 
 func centavos(v float64) int64 { return int64(math.Round(v * 100)) }
+
+// arred2 arredonda a centavos (meio para longe do zero), o mesmo valor que
+// fmtVal imprime — para que a soma dos itens bata com o total impresso.
+func arred2(v float64) float64 { return float64(centavos(v)) / 100 }
 
 // liquidoCobranca devolve o vLiq da fatura em centavos: o informado, ou
 // VOrig - VDesc quando vem zero.
