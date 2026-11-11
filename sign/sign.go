@@ -147,7 +147,63 @@ func extrairElementoC14N(xmlBytes, tagInicio []byte, ns string) ([]byte, string,
 	decl := `xmlns="` + ns + `" `
 	elemento = bytes.Replace(elemento, tagInicio, append(append([]byte{}, tagInicio...), decl...), 1)
 
-	return elemento, refURI, nil
+	return canonicalizarReferencias(elemento), refURI, nil
+}
+
+// canonicalizarReferencias reescreve as referências de caractere na forma que a
+// C14N produz (REC-xml-c14n-20010315 §2.3): no texto só &amp; &lt; &gt; &#xD;
+// ficam escapados; no atributo, &amp; &lt; &quot; &#x9; &#xA; &#xD;. O
+// encoding/xml escreve " como &#34; e ' como &#39;; a SEFAZ calcula o digest
+// sobre a forma canônica, então assinar os bytes crus dava cStat 202 em todo
+// produto com polegada no nome (1.1/2"). Caso real: nota 110 da ATUAR, 11/11/2026.
+// O XML enviado continua com &#34;: quem lê o documento vê o mesmo caractere.
+func canonicalizarReferencias(x []byte) []byte {
+	if !bytes.Contains(x, []byte("&")) {
+		return x
+	}
+	texto := map[string]string{
+		"&#34;": `"`, "&quot;": `"`, "&#39;": "'", "&apos;": "'",
+		"&#9;": "\t", "&#x9;": "\t", "&#10;": "\n", "&#xA;": "\n", "&#13;": "&#xD;",
+	}
+	atrib := map[string]string{
+		"&#34;": "&quot;", "&#39;": "'", "&apos;": "'", "&gt;": ">",
+		"&#9;": "&#x9;", "&#10;": "&#xA;", "&#13;": "&#xD;",
+	}
+	out := make([]byte, 0, len(x))
+	emTag := false
+	var aspa byte
+	for i := 0; i < len(x); i++ {
+		ch := x[i]
+		if ch == '&' && (!emTag || aspa != 0) {
+			if fim := bytes.IndexByte(x[i:], ';'); fim > 0 {
+				tabela := texto
+				if emTag {
+					tabela = atrib
+				}
+				if novo, ok := tabela[string(x[i:i+fim+1])]; ok {
+					out = append(out, novo...)
+					i += fim
+					continue
+				}
+			}
+		}
+		switch {
+		case aspa != 0:
+			if ch == aspa {
+				aspa = 0
+			}
+		case emTag:
+			if ch == '"' || ch == '\'' {
+				aspa = ch
+			} else if ch == '>' {
+				emTag = false
+			}
+		case ch == '<':
+			emTag = true
+		}
+		out = append(out, ch)
+	}
+	return out
 }
 
 // extrairAtrib retorna o valor de um atributo XML: Attr="valor".
