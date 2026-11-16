@@ -41,6 +41,9 @@ type RetornoConsultaProtocolo struct {
 	DhRecbto string `xml:"dhRecbto"`
 	// XMLNFeProc: o XML completo da nfeProc retornado pela SEFAZ, se autorizada.
 	XMLNFeProc []byte
+	// ProcEventos: os procEventoNFe crus que a SEFAZ devolve junto (cancelamento, CC-e...), na
+	// ordem do retorno. Ler cada um com LerProcEvento.
+	ProcEventos [][]byte
 }
 
 // cnpjAutorEvento devolve o CNPJ que vai no <CNPJ> do evento do emitente (cancelamento, CC-e): o do
@@ -98,6 +101,10 @@ func (cl *Cliente) ConsultarProtocolo(ctx context.Context, chave string) (*Retor
 	if err := xml.Unmarshal(inner, &result); err != nil {
 		return nil, fmt.Errorf("sefaz: parse retConsSitNFe: %w", err)
 	}
+	procEventos, err := ExtrairProcEventos(inner)
+	if err != nil {
+		return nil, err
+	}
 
 	return &RetornoConsultaProtocolo{
 		RetornoSEFAZ: result.Ret.RetornoSEFAZ,
@@ -105,6 +112,7 @@ func (cl *Cliente) ConsultarProtocolo(ctx context.Context, chave string) (*Retor
 		NProt:        result.Ret.InfProt.NProt,
 		VerAplic:     result.Ret.InfProt.VerAplic,
 		DhRecbto:     result.Ret.InfProt.DhRecbto,
+		ProcEventos:  procEventos,
 	}, nil
 }
 
@@ -120,6 +128,9 @@ type RetornoCancelamento struct {
 	NProt         string
 	CStatEvento   string
 	XMotivoEvento string
+	// XMLProcEvento: procEventoNFe (evento assinado + retEvento), vazio se a SEFAZ não devolveu
+	// retEvento. Só vale como documento quando CStatEvento é 135/136/155.
+	XMLProcEvento []byte
 }
 
 // Cancelar cancela uma NF-e autorizada.
@@ -203,12 +214,14 @@ func (cl *Cliente) Cancelar(ctx context.Context, chave, nProt, justificativa str
 	}
 
 	ret := result.Ret
+	procEvento := procEventoDaResposta(eventoAssinado, inner)
 	return &RetornoCancelamento{
 		RetornoSEFAZ:  ret.RetornoSEFAZ,
 		ChNFe:         ret.InfEvento.ChNFe,
 		NProt:         ret.InfEvento.NProt,
 		CStatEvento:   ret.InfEvento.CStat,
 		XMotivoEvento: ret.InfEvento.XMotivo,
+		XMLProcEvento: procEvento,
 	}, nil
 }
 
@@ -229,6 +242,9 @@ type RetornoCartaCorrecao struct {
 	NProt         string
 	CStatEvento   string
 	XMotivoEvento string
+	// XMLProcEvento: procEventoNFe (evento assinado + retEvento) — o arquivo da CC-e para guardar
+	// e entregar. Vazio se a SEFAZ não devolveu retEvento.
+	XMLProcEvento []byte
 }
 
 // CartaCorrecao envia uma Carta de Correção Eletrônica (CC-e, tpEvento=110110).
@@ -322,13 +338,27 @@ func CartaCorrecao(c *cert.Certificado, chNFe, xCorrecao, xCondUso string, nSeqE
 	if err := xml.Unmarshal(inner, &result); err != nil {
 		return nil, fmt.Errorf("sefaz: parse retEnvEvento CC-e: %w", err)
 	}
+	procEvento := procEventoDaResposta(eventoAssinado, inner)
 
 	return &RetornoCartaCorrecao{
 		RetornoSEFAZ:  result.Ret.RetornoSEFAZ,
 		NProt:         result.Ret.InfEvento.NProt,
 		CStatEvento:   result.Ret.InfEvento.CStat,
 		XMotivoEvento: result.Ret.InfEvento.XMotivo,
+		XMLProcEvento: procEvento,
 	}, nil
+}
+
+// procEventoDaResposta monta o procEventoNFe a partir do evento enviado e do primeiro retEvento do
+// retEnvEvento. Sem retEvento (lote rejeitado inteiro) devolve nil. Nunca falha: o evento pode já
+// estar registrado na SEFAZ, e perder o resultado por causa do arquivo seria pior que ficar sem ele
+// (dá para buscar depois pela consulta de protocolo).
+func procEventoDaResposta(eventoAssinado, retEnvEvento []byte) []byte {
+	rets, err := extrairElementos(retEnvEvento, "retEvento")
+	if err != nil || len(rets) == 0 {
+		return nil
+	}
+	return MontarProcEventoNFe(eventoAssinado, rets[0])
 }
 
 // ── Manifestação do destinatário (eventos 210210 / 210200 / 210220 / 210240) ──
