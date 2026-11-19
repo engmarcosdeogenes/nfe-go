@@ -144,6 +144,7 @@ func TestXSD_VariantesDoBuilder(t *testing.T) {
 		"crt3_cst10_st":     com(entradaCRT3(), item("ST", builder.EntradaICMS{CST: "10", Aliq: 12, PMVAST: 40, AliqST: 18}, "6401")),
 		"crt3_cst20":        com(entradaCRT3(), item("RED", builder.EntradaICMS{CST: "20", Aliq: 12, PRedBC: 10}, "5102")),
 		"crt3_cst40":        com(entradaCRT3(), item("ISE", builder.EntradaICMS{CST: "40"}, "5102")),
+		"crt3_cst40_deson":  com(entradaCRT3(), item("DES", builder.EntradaICMS{CST: "40", VICMSDeson: 19, MotDesICMS: "9"}, "5102")),
 		"crt3_cst60":        com(entradaCRT3(), item("ST60", builder.EntradaICMS{CST: "60", VBCSTRet: 700, PST: 18, VICMSSTRet: 126}, "5405")),
 		"crt3_difal":        interestadual,
 		"dest_isento":       destISENTO,

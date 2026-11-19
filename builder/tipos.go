@@ -452,9 +452,10 @@ type ICMS20 struct {
 
 type ICMS40 struct {
 	Orig       string `xml:"orig"`
-	CST        string `xml:"CST"` // 40=isento, 41=não tributado, 50=suspensão
-	VICMSDeson string `xml:"vICMSDeson,omitempty"`
-	MotDesICMS string `xml:"motDesICMS,omitempty"`
+	CST           string `xml:"CST"` // 40=isento, 41=não tributado, 50=suspensão
+	VICMSDeson    string `xml:"vICMSDeson,omitempty"`
+	MotDesICMS    string `xml:"motDesICMS,omitempty"`
+	IndDeduzDeson string `xml:"indDeduzDeson,omitempty"`
 }
 
 type ICMS60 struct {

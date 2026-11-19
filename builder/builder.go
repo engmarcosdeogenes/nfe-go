@@ -782,6 +782,7 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	vDescTotal := 0.0
 	vBCTotal := 0.0
 	vICMSTotal := 0.0
+	vICMSDesonTotal := 0.0
 	vBCSTTotal := 0.0
 	vICMSSTTotal := 0.0
 	vPISTotal := 0.0
@@ -809,6 +810,7 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 		}
 		vBCTotal += totItem.vBC
 		vICMSTotal += totItem.vICMS
+		vICMSDesonTotal += totItem.vICMSDeson
 		vBCSTTotal += totItem.vBCST
 		vICMSSTTotal += totItem.vICMSST
 		vPISTotal += totItem.vPIS
@@ -888,7 +890,7 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	tot.VNF = fmtVal(vProdTotal + e.Frete.VFrete + e.Frete.VSeg + e.Frete.VOutro + vICMSSTTotal - vDescTotal)
 	tot.VBC = fmtVal(vBCTotal)
 	tot.VICMS = fmtVal(vICMSTotal)
-	tot.VICMSDeson = "0.00"
+	tot.VICMSDeson = fmtVal(vICMSDesonTotal) // indDeduzDeson=0: não sai do vNF
 	tot.VFCPUFDest = fmtValOmitZero(vFCPUFDestTotal)
 	tot.VICMSUFDest = fmtValOmitZero(vICMSUFDestTotal)
 	tot.VICMSUFRemet = fmtValOmitZero(vICMSUFRemetTotal)
@@ -1009,6 +1011,7 @@ func montarPISCOFINS(p EntradaPISCofins, vProd float64, defaultCST string) (PIS,
 // declarado não bater com o somatório dos itens.
 type totaisItem struct {
 	vBC, vICMS, vBCST, vICMSST             float64
+	vICMSDeson                             float64
 	vPIS, vCOFINS                          float64
 	vIPI                                   float64
 	vBCIBSCBS, vIBSUF, vIBSMun, vIBS, vCBS float64
@@ -1158,6 +1161,13 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 		tot.vBC, tot.vICMS, tot.vBCST, tot.vICMSST = vBC, vICMS, vBCST, vICMSST
 	case "40", "41", "50":
 		icms.ICMS40 = &ICMS40{Orig: orig, CST: cst}
+		if d := math.Round(item.ICMS.VICMSDeson*100) / 100; d > 0 {
+			if item.ICMS.MotDesICMS == "" {
+				return Imposto{}, totaisItem{}, fmt.Errorf("item %s: vICMSDeson exige motDesICMS", item.CProd)
+			}
+			icms.ICMS40.VICMSDeson, icms.ICMS40.MotDesICMS, icms.ICMS40.IndDeduzDeson = fmtVal(d), item.ICMS.MotDesICMS, "0"
+			tot.vICMSDeson = d
+		}
 	case "60":
 		icms.ICMS60 = &ICMS60{
 			Orig:       orig,
