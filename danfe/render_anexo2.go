@@ -850,7 +850,9 @@ func celulasItemRTC(it itemDANFE) []string {
 	}
 	rtc, is := it.TemGIBSCBS, it.TemIS
 
-	desc := it.XProd
+	// Anexo II §3.1.7: o código do produto não pode ser suprimido e o modelo
+	// da NT não tem coluna CÓDIGO — vai na 1ª linha da descrição.
+	desc := it.CProd + " - " + it.XProd
 	if it.InfAdProd != "" {
 		desc += "\n" + it.InfAdProd
 	}

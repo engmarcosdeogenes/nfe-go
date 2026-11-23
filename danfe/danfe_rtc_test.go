@@ -176,14 +176,14 @@ func TestGerarDANFE_RTC(t *testing.T) {
 			nome:   "antes-com-ibscbs",
 			xml:    assinarEntrada(t, emitidaEm(entradaRTC(2, true), antesRTC)),
 			tem:    antigo,
-			naoTem: append(novo, "cClassTrib"),
+			naoTem: append(novo, "cClassTrib", "ITEM-001 - "),
 		},
 		{
 			// CRT 1, sem grupo IBSCBS: o quadro do §4.1 sai, com os campos
 			// em branco (§4.4); nada de cClassTrib nem linha de monofásico.
 			nome:   "depois-simples-sem-ibscbs",
 			xml:    assinarEntrada(t, emitidaEm(entradaDANFETeste(), depoisRTC)),
-			tem:    append(novo, "1 - SIMPLES NACIONAL", "CST 0400", "IBS / CBS ", "IBS UF  / IPI "),
+			tem:    append(novo, "1 - SIMPLES NACIONAL", "PERF-002 - PERFIL ESTRUTURAL L 2X2", "CST 0400", "IBS / CBS ", "IBS UF  / IPI "),
 			naoTem: append(antigo, "cClassTrib", "MONOF", "VALOR DO FCP"),
 		},
 		{
@@ -198,7 +198,7 @@ func TestGerarDANFE_RTC(t *testing.T) {
 			// Item 2 com gRed de 60%: §4.3 manda a alíquota efetiva.
 			nome: "depois-gred",
 			xml:  assinarEntrada(t, emitidaEm(entradaRTC(2, true), depoisRTC)),
-			tem: []string{"cClassTrib 200009", "ICMS 12,00% / CBS 0,36%", "IBS UF 0,04% / IPI ",
+			tem: []string{"ITEM-001 - PERFIL ESTRUTURAL", "cClassTrib 200009", "ICMS 12,00% / CBS 0,36%", "IBS UF 0,04% / IPI ",
 				"IBS MUN 0,02% / IS ", "CBS 3,60", "(12,60)"},
 		},
 		{
