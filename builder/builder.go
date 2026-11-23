@@ -178,6 +178,10 @@ type EntradaItem struct {
 	// venda interestadual pra revenda, ou Simples Nacional -- ver comentário
 	// em ICMSUFDest no tipos.go).
 	ICMSUFDest *EntradaICMSUFDest
+	// VTotTrib: valor aproximado dos tributos do item (Lei 12.741/2012, tag
+	// imposto/vTotTrib), calculado por quem chama (tabela IBPT). 0 = não
+	// informa; o total W16a é a soma dos itens (rejeição 685).
+	VTotTrib float64
 }
 
 // EntradaICMSUFDest informa as alíquotas do DIFAL -- alíquota interna do UF
@@ -228,16 +232,20 @@ type EntradaICMS struct {
 	// Orig está vazio; Orig preenchido tem prioridade.
 	Orig string
 	// Regime Normal
-	CST    string  // "00", "20", "40", "60", "90"
+	CST    string  // "00", "10", "20", "30", "40", "41", "50", "51", "60", "70"
 	ModBC  string  // "3" = valor da operação
-	PRedBC float64 // % redução de BC (ICMS20)
+	PRedBC float64 // % redução de BC (CST 20, 51, 70)
 	Aliq   float64 // alíquota %
+	// PDif: % do diferimento (CST 51). 100 = diferimento total (vICMS 0).
+	PDif float64
 	// Simples Nacional
 	CSOSN string // "102", "400", "500", etc.
-	// ST prospectivo (CST 10)
-	ModBCST string
-	PMVAST  float64
-	AliqST  float64
+	// ST prospectivo (CST 10, 30, 70; CSOSN 201, 202). ModBCST vazio = "4"
+	// (MVA); pMVAST só vai no XML com modBCST 4 (rejeições 932/933).
+	ModBCST  string
+	PMVAST   float64
+	PRedBCST float64 // % de redução da BC do ST
+	AliqST   float64
 	// ST retido anteriormente (CST 60 no Regime Normal, CSOSN 500 no Simples)
 	VBCSTRet   float64
 	PST        float64 // alíquota suportada pelo consumidor final (schema: pST)
@@ -796,6 +804,7 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	vICMSUFDestTotal := 0.0
 	vICMSUFRemetTotal := 0.0
 	vFCPUFDestTotal := 0.0
+	vTotTribTotal := 0.0
 	temIBSCBS := false
 	temDIFAL := false
 
@@ -808,6 +817,11 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 		if err != nil {
 			return nil, ICMSTot{}, nil, err
 		}
+		if item.VTotTrib < 0 {
+			return nil, ICMSTot{}, nil, fmt.Errorf("builder: vTotTrib negativo (item %q)", item.CProd)
+		}
+		imp.VTotTrib = fmtValOmitZero(arred2(item.VTotTrib))
+		vTotTribTotal += arred2(item.VTotTrib)
 		vBCTotal += totItem.vBC
 		vICMSTotal += totItem.vICMS
 		vICMSDesonTotal += totItem.vICMSDeson
@@ -910,7 +924,7 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 	tot.VPIS = fmtVal(vPISTotal)
 	tot.VCOFINS = fmtVal(vCOFINSTotal)
 	tot.VOutro = fmtVal(e.Frete.VOutro)
-	tot.VTotTrib = "0.00"
+	tot.VTotTrib = fmtVal(vTotTribTotal)
 	if tot.VDesc == "" {
 		tot.VDesc = "0.00"
 	}
@@ -1070,19 +1084,22 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 			if item.ICMS.AliqST <= 0 {
 				return Imposto{}, totaisItem{}, fmt.Errorf("builder: CSOSN %s exige a alíquota ST em ICMS.AliqST (item %q)", csosn, item.CProd)
 			}
-			modBCST := item.ICMS.ModBCST
-			if modBCST == "" {
-				modBCST = "4"
+			// shortcut: o ICMS-ST do Simples não deduz o ICMS próprio (que seria
+			// calculado pela alíquota normal, LC 123 art. 13 §1º XIII "a");
+			// falta um campo de alíquota de dedução. Sai a maior — corrigir
+			// quando houver cliente de SN substituto.
+			st, err := calcularST(item, vProd, 0)
+			if err != nil {
+				return Imposto{}, totaisItem{}, err
 			}
-			vBCST := vProd * (1 + item.ICMS.PMVAST/100)
-			vICMSST := vBCST * item.ICMS.AliqST / 100
+			modBCST, vBCST, vICMSST := st.mod, st.vBC, st.vICMS
 			if csosn == "201" {
 				if item.ICMS.Aliq <= 0 {
 					return Imposto{}, totaisItem{}, fmt.Errorf("builder: CSOSN 201 exige a alíquota de crédito em ICMS.Aliq (item %q)", item.CProd)
 				}
 				icms.ICMSSN201 = &ICMSSN201{
 					Orig: orig, CSOSN: csosn, ModBCST: modBCST,
-					PMVAST: fmtVal(item.ICMS.PMVAST), VBCST: fmtVal(vBCST),
+					PMVAST: st.pMVA, PRedBCST: st.pRed, VBCST: fmtVal(vBCST),
 					PICMSST: fmtVal(item.ICMS.AliqST), VICMSST: fmtVal(vICMSST),
 					PCredSN: fmtVal(item.ICMS.Aliq), VCredICMSSN: fmtVal(vProd * item.ICMS.Aliq / 100),
 				}
@@ -1090,7 +1107,7 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 			} else {
 				icms.ICMSSN202 = &ICMSSN202{
 					Orig: orig, CSOSN: csosn, ModBCST: modBCST,
-					PMVAST: fmtVal(item.ICMS.PMVAST), VBCST: fmtVal(vBCST),
+					PMVAST: st.pMVA, PRedBCST: st.pRed, VBCST: fmtVal(vBCST),
 					PICMSST: fmtVal(item.ICMS.AliqST), VICMSST: fmtVal(vICMSST),
 				}
 				tot.vBCST, tot.vICMSST = vBCST, vICMSST
@@ -1131,6 +1148,9 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 	vProd := item.Quantidade * item.VUnitario
 	tot := totaisItem{}
 
+	if (cst == "30" || cst == "70") && item.ICMS.AliqST <= 0 {
+		return Imposto{}, totaisItem{}, fmt.Errorf("builder: CST %s exige a alíquota ST em ICMS.AliqST (item %q)", cst, item.CProd)
+	}
 	switch cst {
 	case "00":
 		vBC := vProd
@@ -1143,22 +1163,63 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 	case "10":
 		vBC := vProd
 		vICMS := vBC * item.ICMS.Aliq / 100
-		modBCST := item.ICMS.ModBCST
-		if modBCST == "" {
-			modBCST = "4" // padrão: MVA ajustado
-		}
-		vBCST := vProd * (1 + item.ICMS.PMVAST/100)
-		vICMSST := vBCST*item.ICMS.AliqST/100 - vICMS
-		if vICMSST < 0 {
-			vICMSST = 0
+		st, err := calcularST(item, vProd, vICMS)
+		if err != nil {
+			return Imposto{}, totaisItem{}, err
 		}
 		icms.ICMS10 = &ICMS10{
 			Orig: orig, CST: "10", ModBC: "3",
 			VBC: fmtVal(vBC), PICMS: fmtVal(item.ICMS.Aliq), VICMS: fmtVal(vICMS),
-			ModBCST: modBCST, PMVAST: fmtVal(item.ICMS.PMVAST),
-			VBCST: fmtVal(vBCST), PICMSST: fmtVal(item.ICMS.AliqST), VICMSST: fmtVal(vICMSST),
+			ModBCST: st.mod, PMVAST: st.pMVA, PRedBCST: st.pRed,
+			VBCST: fmtVal(st.vBC), PICMSST: fmtVal(item.ICMS.AliqST), VICMSST: fmtVal(st.vICMS),
 		}
-		tot.vBC, tot.vICMS, tot.vBCST, tot.vICMSST = vBC, vICMS, vBCST, vICMSST
+		tot.vBC, tot.vICMS, tot.vBCST, tot.vICMSST = vBC, vICMS, st.vBC, st.vICMS
+	case "30":
+		// Operação própria isenta/não tributada: o ST deduz o ICMS que seria
+		// devido na operação própria (vProd × Aliq), quando informado.
+		st, err := calcularST(item, vProd, vProd*item.ICMS.Aliq/100)
+		if err != nil {
+			return Imposto{}, totaisItem{}, err
+		}
+		icms.ICMS30 = &ICMS30{
+			Orig: orig, CST: "30", ModBCST: st.mod, PMVAST: st.pMVA, PRedBCST: st.pRed,
+			VBCST: fmtVal(st.vBC), PICMSST: fmtVal(item.ICMS.AliqST), VICMSST: fmtVal(st.vICMS),
+		}
+		tot.vBCST, tot.vICMSST = st.vBC, st.vICMS
+	case "51":
+		// pDif 0 seria ICMS cheio com CST de diferimento: quem não difere usa CST 00/20.
+		if item.ICMS.PDif <= 0 || item.ICMS.PDif > 100 {
+			return Imposto{}, totaisItem{}, fmt.Errorf("builder: CST 51 exige o percentual de diferimento em ICMS.PDif, de 0,01 a 100 (item %q, veio %.2f)", item.CProd, item.ICMS.PDif)
+		}
+		// Valores em cadeia já arredondados: as regras 351/352/353 comparam
+		// os campos impressos entre si.
+		vBC := arred2(vProd * (1 - item.ICMS.PRedBC/100))
+		vICMSOp := arred2(vBC * item.ICMS.Aliq / 100)
+		vICMSDif := arred2(vICMSOp * item.ICMS.PDif / 100)
+		vICMS := arred2(vICMSOp - vICMSDif)
+		icms.ICMS51 = &ICMS51{
+			Orig: orig, CST: "51", ModBC: "3", PRedBC: fmtVal(item.ICMS.PRedBC), VBC: fmtVal(vBC),
+			PICMS: fmtVal(item.ICMS.Aliq), VICMSOp: fmtVal(vICMSOp), PDif: fmtVal(item.ICMS.PDif),
+			VICMSDif: fmtVal(vICMSDif), VICMS: fmtVal(vICMS),
+		}
+		tot.vBC, tot.vICMS = vBC, vICMS
+	case "70":
+		if item.ICMS.PRedBC <= 0 {
+			return Imposto{}, totaisItem{}, fmt.Errorf("builder: CST 70 exige o percentual de redução da BC em ICMS.PRedBC (item %q)", item.CProd)
+		}
+		vBC := vProd * (1 - item.ICMS.PRedBC/100)
+		vICMS := vBC * item.ICMS.Aliq / 100
+		st, err := calcularST(item, vProd, vICMS)
+		if err != nil {
+			return Imposto{}, totaisItem{}, err
+		}
+		icms.ICMS70 = &ICMS70{
+			Orig: orig, CST: "70", ModBC: "3", PRedBC: fmtVal(item.ICMS.PRedBC),
+			VBC: fmtVal(vBC), PICMS: fmtVal(item.ICMS.Aliq), VICMS: fmtVal(vICMS),
+			ModBCST: st.mod, PMVAST: st.pMVA, PRedBCST: st.pRed,
+			VBCST: fmtVal(st.vBC), PICMSST: fmtVal(item.ICMS.AliqST), VICMSST: fmtVal(st.vICMS),
+		}
+		tot.vBC, tot.vICMS, tot.vBCST, tot.vICMSST = vBC, vICMS, st.vBC, st.vICMS
 	case "40", "41", "50":
 		icms.ICMS40 = &ICMS40{Orig: orig, CST: cst}
 		if d := math.Round(item.ICMS.VICMSDeson*100) / 100; d > 0 {
@@ -1188,7 +1249,7 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 	default:
 		// Antes caía em ICMS40 calado: CST 90 ou 51 saía como 40 (imposto
 		// errado na nota autorizada). Recusar é o único caminho seguro.
-		return Imposto{}, totaisItem{}, fmt.Errorf("builder: CST de ICMS %q não suportado (item %q) — use 00, 10, 20, 40, 41, 50 ou 60", item.ICMS.CST, item.CProd)
+		return Imposto{}, totaisItem{}, fmt.Errorf("builder: CST de ICMS %q não suportado (item %q) — use 00, 10, 20, 30, 40, 41, 50, 51, 60 ou 70", item.ICMS.CST, item.CProd)
 	}
 
 	imp.ICMS = icms
@@ -1289,6 +1350,46 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 	}
 
 	return imp, tot, nil
+}
+
+// stItem é o ICMS-ST prospectivo de um item, pronto para os grupos 10/30/70/SN201/SN202.
+type stItem struct {
+	mod, pMVA, pRed string // pMVA e pRed vazios = tag omitida
+	vBC, vICMS      float64
+}
+
+// calcularST: vBCST = vProd × (1 + MVA) × (1 − redução da BC-ST); vICMSST =
+// vBCST × alíquota ST − ICMS próprio (nunca negativo). pMVAST só existe com
+// modBCST 4 (rejeições 932/933): com outra modalidade a base é o próprio vProd
+// (modBCST 6, valor da operação); pauta/preço tabelado (0, 1, 2, 3, 5) não
+// têm entrada de preço aqui.
+func calcularST(item EntradaItem, vProd, vICMSProprio float64) (stItem, error) {
+	e := item.ICMS
+	st := stItem{mod: e.ModBCST}
+	if st.mod == "" {
+		st.mod = "4"
+	}
+	if e.PRedBCST < 0 || e.PRedBCST >= 100 {
+		return stItem{}, fmt.Errorf("builder: redução da BC do ST %.2f%% fora de 0 a 100 (item %q)", e.PRedBCST, item.CProd)
+	}
+	mva := 0.0
+	switch st.mod {
+	case "4":
+		mva = e.PMVAST
+		st.pMVA = fmtVal(mva)
+	case "6":
+		if e.PMVAST != 0 {
+			return stItem{}, fmt.Errorf("builder: pMVAST só vale com modBCST 4, não %s (item %q, rejeição 933)", st.mod, item.CProd)
+		}
+	default:
+		return stItem{}, fmt.Errorf("builder: modBCST %q não suportado (item %q) — use 4 (MVA) ou 6 (valor da operação)", st.mod, item.CProd)
+	}
+	if e.PRedBCST > 0 {
+		st.pRed = fmtVal(e.PRedBCST)
+	}
+	st.vBC = vProd * (1 + mva/100) * (1 - e.PRedBCST/100)
+	st.vICMS = math.Max(st.vBC*e.AliqST/100-vICMSProprio, 0)
+	return st, nil
 }
 
 func centavos(v float64) int64 { return int64(math.Round(v * 100)) }

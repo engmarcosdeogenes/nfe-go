@@ -405,8 +405,11 @@ type ICMS struct {
 	ICMS00    *ICMS00    `xml:"ICMS00,omitempty"`
 	ICMS10    *ICMS10    `xml:"ICMS10,omitempty"`
 	ICMS20    *ICMS20    `xml:"ICMS20,omitempty"`
+	ICMS30    *ICMS30    `xml:"ICMS30,omitempty"`
 	ICMS40    *ICMS40    `xml:"ICMS40,omitempty"`
+	ICMS51    *ICMS51    `xml:"ICMS51,omitempty"`
 	ICMS60    *ICMS60    `xml:"ICMS60,omitempty"`
+	ICMS70    *ICMS70    `xml:"ICMS70,omitempty"`
 	ICMS90    *ICMS90    `xml:"ICMS90,omitempty"`
 	ICMSSN101 *ICMSSN101 `xml:"ICMSSN101,omitempty"`
 	ICMSSN102 *ICMSSN102 `xml:"ICMSSN102,omitempty"`
@@ -427,17 +430,18 @@ type ICMS00 struct {
 }
 
 type ICMS10 struct {
-	Orig    string `xml:"orig"`
-	CST     string `xml:"CST"` // 10=tributado + ST
-	ModBC   string `xml:"modBC"`
-	VBC     string `xml:"vBC"`
-	PICMS   string `xml:"pICMS"`
-	VICMS   string `xml:"vICMS"`
-	ModBCST string `xml:"modBCST"`
-	PMVAST  string `xml:"pMVAST"`
-	VBCST   string `xml:"vBCST"`
-	PICMSST string `xml:"pICMSST"`
-	VICMSST string `xml:"vICMSST"`
+	Orig     string `xml:"orig"`
+	CST      string `xml:"CST"` // 10=tributado + ST
+	ModBC    string `xml:"modBC"`
+	VBC      string `xml:"vBC"`
+	PICMS    string `xml:"pICMS"`
+	VICMS    string `xml:"vICMS"`
+	ModBCST  string `xml:"modBCST"`
+	PMVAST   string `xml:"pMVAST,omitempty"` // só com modBCST=4 (rejeições 932/933)
+	PRedBCST string `xml:"pRedBCST,omitempty"`
+	VBCST    string `xml:"vBCST"`
+	PICMSST  string `xml:"pICMSST"`
+	VICMSST  string `xml:"vICMSST"`
 }
 
 type ICMS20 struct {
@@ -450,8 +454,53 @@ type ICMS20 struct {
 	VICMS  string `xml:"vICMS"`
 }
 
+// ICMS30: isenta/não tributada com cobrança do ICMS-ST (sem ICMS próprio).
+type ICMS30 struct {
+	Orig     string `xml:"orig"`
+	CST      string `xml:"CST"`
+	ModBCST  string `xml:"modBCST"`
+	PMVAST   string `xml:"pMVAST,omitempty"`
+	PRedBCST string `xml:"pRedBCST,omitempty"`
+	VBCST    string `xml:"vBCST"`
+	PICMSST  string `xml:"pICMSST"`
+	VICMSST  string `xml:"vICMSST"`
+}
+
+// ICMS51: diferimento. Todos os campos vão preenchidos (rejeição 929, a
+// critério da UF): vICMSOp = vBC*pICMS (351), vICMSDif = vICMSOp*pDif (352),
+// vICMS = vICMSOp - vICMSDif (353).
+type ICMS51 struct {
+	Orig     string `xml:"orig"`
+	CST      string `xml:"CST"`
+	ModBC    string `xml:"modBC"`
+	PRedBC   string `xml:"pRedBC"`
+	VBC      string `xml:"vBC"`
+	PICMS    string `xml:"pICMS"`
+	VICMSOp  string `xml:"vICMSOp"`
+	PDif     string `xml:"pDif"`
+	VICMSDif string `xml:"vICMSDif"`
+	VICMS    string `xml:"vICMS"`
+}
+
+// ICMS70: redução de BC com cobrança do ICMS-ST.
+type ICMS70 struct {
+	Orig     string `xml:"orig"`
+	CST      string `xml:"CST"`
+	ModBC    string `xml:"modBC"`
+	PRedBC   string `xml:"pRedBC"`
+	VBC      string `xml:"vBC"`
+	PICMS    string `xml:"pICMS"`
+	VICMS    string `xml:"vICMS"`
+	ModBCST  string `xml:"modBCST"`
+	PMVAST   string `xml:"pMVAST,omitempty"`
+	PRedBCST string `xml:"pRedBCST,omitempty"`
+	VBCST    string `xml:"vBCST"`
+	PICMSST  string `xml:"pICMSST"`
+	VICMSST  string `xml:"vICMSST"`
+}
+
 type ICMS40 struct {
-	Orig       string `xml:"orig"`
+	Orig          string `xml:"orig"`
 	CST           string `xml:"CST"` // 40=isento, 41=não tributado, 50=suspensão
 	VICMSDeson    string `xml:"vICMSDeson,omitempty"`
 	MotDesICMS    string `xml:"motDesICMS,omitempty"`
@@ -492,7 +541,8 @@ type ICMSSN201 struct {
 	Orig        string `xml:"orig"`
 	CSOSN       string `xml:"CSOSN"` // 201=com ST + crédito SN
 	ModBCST     string `xml:"modBCST"`
-	PMVAST      string `xml:"pMVAST"`
+	PMVAST      string `xml:"pMVAST,omitempty"`
+	PRedBCST    string `xml:"pRedBCST,omitempty"`
 	VBCST       string `xml:"vBCST"`
 	PICMSST     string `xml:"pICMSST"`
 	VICMSST     string `xml:"vICMSST"`
@@ -501,13 +551,14 @@ type ICMSSN201 struct {
 }
 
 type ICMSSN202 struct {
-	Orig    string `xml:"orig"`
-	CSOSN   string `xml:"CSOSN"` // 202=com ST sem crédito
-	ModBCST string `xml:"modBCST"`
-	PMVAST  string `xml:"pMVAST"`
-	VBCST   string `xml:"vBCST"`
-	PICMSST string `xml:"pICMSST"`
-	VICMSST string `xml:"vICMSST"`
+	Orig     string `xml:"orig"`
+	CSOSN    string `xml:"CSOSN"` // 202=com ST sem crédito
+	ModBCST  string `xml:"modBCST"`
+	PMVAST   string `xml:"pMVAST,omitempty"`
+	PRedBCST string `xml:"pRedBCST,omitempty"`
+	VBCST    string `xml:"vBCST"`
+	PICMSST  string `xml:"pICMSST"`
+	VICMSST  string `xml:"vICMSST"`
 }
 
 type ICMSSN500 struct {
