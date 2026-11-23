@@ -264,7 +264,7 @@ func (cl *Cliente) Autorizar(ctx context.Context, nfeAssinada []byte, chave stri
 	if ret.CStat == "104" && ret.ProtNFe != nil {
 		p := *ret.ProtNFe
 		resultado := &ResultadoAutorizacao{
-			Autorizada: p.CStat == "100",
+			Autorizada: autorizadoUso(p.CStat),
 			Protocolo:  p,
 		}
 		if resultado.Autorizada {
@@ -300,7 +300,7 @@ func (cl *Cliente) Autorizar(ctx context.Context, nfeAssinada []byte, chave stri
 		for _, p := range cons.ProtNFes {
 			if p.ChNFe == chave {
 				resultado := &ResultadoAutorizacao{
-					Autorizada: p.CStat == "100",
+					Autorizada: autorizadoUso(p.CStat),
 					Protocolo:  p,
 				}
 				if resultado.Autorizada {
@@ -314,6 +314,15 @@ func (cl *Cliente) Autorizar(ctx context.Context, nfeAssinada []byte, chave stri
 	}
 
 	return nil, fmt.Errorf("sefaz: timeout aguardando processamento do lote (nRec=%s)", ret.NRec)
+}
+
+// autorizadoUso diz se o cStat do protocolo autoriza o uso da NF-e: 100, ou
+// 150 ("Autorizado o uso da NF-e, autorização fora de prazo", MOC 7.0 Anexo
+// I, tabela de códigos de retorno) — que é autorização como a 100, só
+// registrada fora do prazo. Denegação (110, 301, 302, 303) não é
+// autorização.
+func autorizadoUso(cStat string) bool {
+	return cStat == "100" || cStat == "150"
 }
 
 // MontarNFeProc embrulha a NF-e assinada com o protocolo de autorização.

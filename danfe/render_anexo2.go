@@ -46,8 +46,13 @@ func renderizarComMarca(d *DadosDANFE, cancelada bool, epec *InfoEPEC, logo *Log
 	// Blocos exclusivos da primeira folha.
 	y = renderDestinatario(pdf, d, y)
 	y = renderDuplicatas(pdf, d, y)
-	y = renderTotais(pdf, d, y)
-	y = renderTotaisRTC(pdf, d, y)
+	// NT 2026.010: a partir de 01/12/2026 (pela dhEmi) o "Cálculo do
+	// Imposto" vira três quadros, como no modelo da pág. 8.
+	if d.LeiauteRTC {
+		y = renderTotaisRTC(pdf, d, y)
+	} else {
+		y = renderTotais(pdf, d, y)
+	}
 	y = renderTransporte(pdf, d, y)
 
 	// O quadro "Cálculo do ISSQN" fica suprimido: a lib não emite serviço com
@@ -446,6 +451,9 @@ func renderNatureza(pdf *Doc, d *DadosDANFE, y float64) float64 {
 		{"INSCRIÇÃO ESTADUAL DO SUBST. TRIBUTÁRIO", d.EmitIEST},
 		{"CNPJ", d.EmitCNPJ},
 	})
+	if !d.LeiauteRTC {
+		return y
+	}
 
 	// NT 2026.010 §4.2 — CRT (C21) e área reservada para o tipo de regime de
 	// apuração do IBS/CBS. A tag desse segundo campo ainda não existe, e a
@@ -560,15 +568,53 @@ func renderTotais(pdf *Doc, d *DadosDANFE, y float64) float64 {
 	})
 }
 
-// renderTotaisRTC desenha o bloco "TOTAL DO IBS / CBS / IS", que a NT
-// 2026.010 §4.1 insere logo depois dos totais de ICMS/IPI. O bloco não está
-// na lista de quadros facultativos do §4.4, então sai sempre; em nota sem
-// IBSCBSTot/ISTot os campos ficam em branco, porque o §4.4 proíbe imprimir
-// informação que não existe no XML (nem "0,00"). A linha dos monofásicos é
-// condicionada ao grupo gMono (W57), também pelo §4.4.
+// renderTotaisRTC desenha a área de totais do leiaute da NT 2026.010, que
+// divide o antigo "Cálculo do Imposto" em três quadros (modelo da pág. 8):
+// totais da nota, ICMS/IPI e o novo IBS/CBS/IS (§4.1). As linhas de FCP/DIFAL
+// e de ICMS monofásico e a de IBS/CBS monofásicos são condicionadas (§4.4):
+// só saem quando o XML traz algum valor delas. O quadro do IBS/CBS/IS não
+// está na lista de facultativos do §4.4, então sai sempre — e em nota sem
+// IBSCBSTot/ISTot os campos ficam em branco, porque o §4.4 manda não
+// preencher campo cuja informação não existe no XML (nem com "0,00").
 func renderTotaisRTC(pdf *Doc, d *DadosDANFE, y float64) float64 {
-	y = tituloBloco(pdf, y, "TOTAL DO IBS / CBS / IS")
+	y = tituloBloco(pdf, y, "TOTAL DOS PRODUTOS E TOTAL DA NOTA")
+	y = linhaCampos(pdf, y, larguraTotProd, [][2]string{
+		{"VALOR TOTAL DOS PRODUTOS", formatarMoeda(d.VProd)},
+		{"VALOR DO FRETE", formatarMoeda(d.VFrete)},
+		{"VALOR DO SEGURO", formatarMoeda(d.VSeg)},
+		{"DESCONTO", formatarMoeda(d.VDesc)},
+		{"OUTRAS DESPESAS", formatarMoeda(d.VOutro)},
+	})
+	y = linhaCampos(pdf, y, []float64{larguraUtil}, [][2]string{
+		{"VALOR TOTAL DA NOTA", formatarMoeda(d.VNF)},
+	})
 
+	y = tituloBloco(pdf, y, "TOTAL DO ICMS / IPI")
+	y = linhaCampos(pdf, y, larguraTotICMS, [][2]string{
+		{"BASE DE CÁLCULO DO ICMS", formatarMoeda(d.VBC)},
+		{"VALOR DO ICMS", formatarMoeda(d.VICMS)},
+		{"BASE DE CÁLCULO DO ICMS ST", formatarMoeda(d.VBCST)},
+		{"VALOR DO ICMS ST", formatarMoeda(d.VST)},
+		{"VALOR DO IPI", formatarMoeda(d.VIPI)},
+	})
+	if d.VFCP != 0 || algumValor(d.VFCPSTTot, d.VICMSUFDestTot, d.VFCPUFDestTot) {
+		y = linhaCampos(pdf, y, larguraTotICMSFc, [][2]string{
+			{"VALOR DO FCP", formatarMoeda(d.VFCP)},
+			{"VALOR DO FCP RETIDO POR ST", formatarOpcional(d.VFCPSTTot)},
+			{"VALOR DO DIFAL NA UF DE DESTINO", formatarOpcional(d.VICMSUFDestTot)},
+			{"VALOR DO FCP NA UF DE DESTINO", formatarOpcional(d.VFCPUFDestTot)},
+		})
+	}
+	if algumValor(d.QBCMonoTot, d.VICMSMonoTot, d.QBCMonoRetenTot, d.VICMSMonoRetenTot) {
+		y = linhaCampos(pdf, y, larguraTotICMSFc, [][2]string{
+			{"BC DO ICMS MONOFÁSICO", formatarQtdOpcional(d.QBCMonoTot)},
+			{"VALOR DO ICMS MONOFÁSICO", formatarOpcional(d.VICMSMonoTot)},
+			{"BC DO ICMS MONOFÁSICO POR RETENÇÃO", formatarQtdOpcional(d.QBCMonoRetenTot)},
+			{"VALOR DO ICMS MONOFÁSICO POR RETENÇÃO", formatarOpcional(d.VICMSMonoRetenTot)},
+		})
+	}
+
+	y = tituloBloco(pdf, y, "TOTAL DO IBS / CBS / IS")
 	y = linhaCampos(pdf, y, larguraRTCL1, [][2]string{
 		{"VALOR DA CBS", formatarOpcional(d.VCBSTot)},
 		{"VALOR DO IBS UF", formatarOpcional(d.VIBSUFTot)},
@@ -584,6 +630,16 @@ func renderTotaisRTC(pdf *Doc, d *DadosDANFE, y float64) float64 {
 		{"VALOR DO IBS MONOFÁSICO POR RETENÇÃO", formatarOpcional(d.VIBSMonoRetenTot)},
 		{"VALOR DA CBS MONOFÁSICA POR RETENÇÃO", formatarOpcional(d.VCBSMonoRetenTot)},
 	})
+}
+
+// algumValor diz se algum dos valores crus do XML é diferente de zero.
+func algumValor(vals ...string) bool {
+	for _, v := range vals {
+		if parseFloat(v) != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // ── Transportador / Volumes transportados ────────────────────────────────────
@@ -633,6 +689,9 @@ func renderTransporte(pdf *Doc, d *DadosDANFE, y float64) float64 {
 func renderItens(pdf *Doc, d *DadosDANFE, y float64, logo *Logo, limite float64) float64 {
 	cols := colunasItens
 	const idxDescricao = 1
+	if d.LeiauteRTC {
+		cols = colunasItensRTC
+	}
 
 	// Cabeçalho das colunas. §3.7.2: descritivo em caixa alta, mínimo 5pt.
 	// Vira closure porque cada folha adicional redesenha o mesmo cabeçalho.
@@ -699,31 +758,37 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64, logo *Logo, limite float64)
 
 		// A descrição é a única coluna que pode usar mais linhas (§3.2, último
 		// parágrafo); a altura da linha inteira acompanha ela.
+		// NT 2026.010 §4.3: no leiaute novo toda célula tem várias linhas
+		// (CST/CFOP, QTD/UN, bases, alíquotas e valores), e a altura da linha
+		// do item é a da célula mais alta.
 		pdf.SetFont("Times", "", fonteItens)
-		linhasDesc := pdf.SplitLines([]byte(pdf.tr(item.XProd)), cols[idxDescricao].w-2)
 		altLinha := 4.0
-		if len(linhasDesc) > 1 {
+		var celulas []string
+		if d.LeiauteRTC {
+			celulas = celulasItemRTC(item)
+			altLinha = 0
+			for i, c := range cols {
+				n := len(pdf.SplitLines([]byte(pdf.tr(celulas[i])), c.w))
+				altLinha = max(altLinha, float64(n)*altLinhaItemRTC+0.8)
+			}
+		} else if linhasDesc := pdf.SplitLines([]byte(pdf.tr(item.XProd)), cols[idxDescricao].w-2); len(linhasDesc) > 1 {
 			altLinha = float64(len(linhasDesc)) * 3.2
 		}
 
-		// NT 2026.010 §4.3 — cClassTrib, bases, alíquotas e valores do IBS
-		// UF, IBS município, CBS e IS. Saem numa sublinha rotulada, com a
-		// largura do quadro, logo abaixo das colunas de sempre: as 14
-		// colunas já ocupam os 20,57cm e 6pt é o piso do §3.7.7, então não
-		// cabem mais 11 colunas. Item sem os grupos não ganha sublinha.
-		textoRTC := linhaRTC(item)
-		altRTC := 0.0
-		if textoRTC != "" {
-			altRTC = float64(len(pdf.SplitLines([]byte(pdf.tr(textoRTC)), larguraUtil-2)))*3.2 + 0.4
-		}
-
-		if y+altLinha+altRTC > limite {
+		if y+altLinha > limite {
 			y = novaFolha()
 		}
 
 		x := margem
 		for i, c := range cols {
-			if i == idxDescricao {
+			if celulas != nil {
+				setarBorda(pdf)
+				pdf.Rect(x, y, c.w, altLinha, "D")
+				pdf.SetFont("Times", "", fonteItens)
+				// MultiCell já deixa 1mm de margem interna de cada lado.
+				pdf.SetXY(x, y+0.4)
+				pdf.MultiCell(c.w, altLinhaItemRTC, celulas[i], "", c.align, false)
+			} else if i == idxDescricao {
 				// MultiCell desenha a borda por linha de texto, com altura
 				// fixa, que não bate com a altura real da linha da tabela —
 				// sobrava um vão entre as duas bordas. Retângulo à parte, na
@@ -741,15 +806,6 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64, logo *Logo, limite float64)
 			x += c.w
 		}
 		y += altLinha
-
-		if textoRTC != "" {
-			setarBorda(pdf)
-			pdf.Rect(margem, y, larguraUtil, altRTC, "D")
-			pdf.SetFont("Times", "", fonteItens)
-			pdf.SetXY(margem+1, y+0.2)
-			pdf.MultiCell(larguraUtil-2, 3.2, textoRTC, "", "L", false)
-			y += altRTC
-		}
 	}
 
 	// O quadro vai até o limite mesmo depois do último item: §3.3.2, §3.3.3 e
@@ -771,25 +827,55 @@ func renderItens(pdf *Doc, d *DadosDANFE, y float64, logo *Logo, limite float64)
 	return y
 }
 
-// linhaRTC monta a sublinha do item com os campos do §4.3 da NT 2026.010.
-// Cada valor vai rotulado, pela diretriz de legibilidade do §3 ("o leitor
-// precisa identificar de qual tributo se trata sem decorar posições"). A
-// alíquota do IBS/CBS já vem do parser como pAliqEfet quando há gRed.
-func linhaRTC(item itemDANFE) string {
-	var partes []string
-	if item.TemIBSCBS {
-		partes = append(partes, fmt.Sprintf(
-			"cClassTrib %s   BC IBS/CBS %s   IBS UF %s%% = %s   IBS Mun. %s%% = %s   CBS %s%% = %s",
-			item.ClassTrib, formatarMoeda(item.VBCIBSCBS),
-			formatarAliqRTC(item.AliqIBSUF), formatarMoeda(item.VIBSUF),
-			formatarAliqRTC(item.AliqIBSMun), formatarMoeda(item.VIBSMun),
-			formatarAliqRTC(item.AliqCBS), formatarMoeda(item.VCBS)))
+// altLinhaItemRTC é a entrelinha das células do item no leiaute RTC: 6pt
+// (piso do §3.7.7 do Anexo II) com o mínimo de respiro.
+const altLinhaItemRTC = 2.6
+
+// celulasItemRTC monta o texto das oito colunas do modelo da NT 2026.010
+// (pág. 8), na ordem de colunasItensRTC. Valor de grupo ausente no XML sai
+// em branco, com o rótulo (§4.4); a alíquota do IBS/CBS já vem do parser
+// como pAliqEfet quando há gRed (§4.3, observação).
+func celulasItemRTC(it itemDANFE) []string {
+	v := func(tem bool, x float64) string {
+		if !tem {
+			return ""
+		}
+		return formatarMoeda(x)
 	}
-	if item.TemIS {
-		partes = append(partes, fmt.Sprintf("BC IS %s   IS %s%% = %s",
-			formatarMoeda(item.VBCIS), formatarAliqRTC(item.AliqIS), formatarMoeda(item.VIS)))
+	p := func(tem bool, x float64) string {
+		if !tem {
+			return ""
+		}
+		return formatarPct(x) + "%"
 	}
-	return strings.Join(partes, "   |   ")
+	rtc, is := it.TemGIBSCBS, it.TemIS
+
+	desc := it.XProd
+	if it.InfAdProd != "" {
+		desc += "\n" + it.InfAdProd
+	}
+	desc += "\nNCM " + it.NCM
+	if it.ClassTrib != "" {
+		desc += "  cClassTrib " + it.ClassTrib
+	}
+
+	return []string{
+		desc,
+		"CST " + it.Orig + it.CST + "\nCFOP " + it.CFOP,
+		formatarQtd(it.Qtd) + "\n" + it.Unidade,
+		formatarMoeda(it.VUnit),
+		formatarMoeda(it.VProd),
+		"ICMS " + v(it.TemICMS, it.VBC) +
+			"\nIBS / CBS " + v(rtc, it.VBCIBSCBS) +
+			"\nIS " + v(is, it.VBCIS) +
+			"\nIPI " + v(it.TemIPI, it.VBCIPI),
+		"ICMS " + p(it.TemICMS, it.AliqICMS) + " / CBS " + p(rtc, it.AliqCBS) +
+			"\nIBS UF " + p(rtc, it.AliqIBSUF) + " / IPI " + p(it.TemIPI, it.AliqIPI) +
+			"\nIBS MUN " + p(rtc, it.AliqIBSMun) + " / IS " + p(is, it.AliqIS),
+		"ICMS " + v(it.TemICMS, it.ICMS) + " / CBS " + v(rtc, it.VCBS) +
+			"\nIBS UF " + v(rtc, it.VIBSUF) + " / IPI " + v(it.TemIPI, it.IPI) +
+			"\nIBS MUN " + v(rtc, it.VIBSMun) + " / IS " + v(is, it.VIS),
+	}
 }
 
 // descricaoCRT devolve o CRT (C21) com o texto da tabela do MOC.

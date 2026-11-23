@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // DadosDANFE reúne todos os dados extraídos do XML da NF-e para renderização.
@@ -28,6 +29,10 @@ type DadosDANFE struct {
 	// imprime com segundos (manual v6.0, divisão VII).
 	DhEmiCompleta     string
 	DhRecbtoCompleta  string
+	// LeiauteRTC escolhe o DANFE da NT 2026.010 pela data de emissão, não
+	// pela data de impressão: reimpressão de nota antiga sai no leiaute
+	// antigo. Ver usaLeiauteRTC.
+	LeiauteRTC bool
 	DataSaida    string
 	HoraSaida    string
 
@@ -89,6 +94,16 @@ type DadosDANFE struct {
 	VIBSMonoRetenTot string // vIBSMonoReten - W59a
 	VCBSMonoRetenTot string // vCBSMonoReten - W59b
 
+	// Campos condicionados do quadro "Total do ICMS/IPI" do leiaute RTC
+	// (NT 2026.010 §4.4), em texto cru pelo mesmo motivo dos de cima.
+	VFCPSTTot         string // vFCPST - W06a
+	VICMSUFDestTot    string // vICMSUFDest - W04e
+	VFCPUFDestTot     string // vFCPUFDest - W04c
+	QBCMonoTot        string // qBCMono - W06b.1
+	VICMSMonoTot      string // vICMSMono - W06c
+	QBCMonoRetenTot   string // qBCMonoReten - W06c.1
+	VICMSMonoRetenTot string // vICMSMonoReten - W06d
+
 	// Transporte
 	ModFrete  string
 	TranspNome string
@@ -149,10 +164,18 @@ type itemDANFE struct {
 	AliqICMS  float64
 	IPI       float64
 	AliqIPI   float64
+	InfAdProd string // V01, linha "[informações adicionais do item]" do modelo RTC
+
+	// Grupo presente no XML. O leiaute RTC deixa em branco o que não veio
+	// (NT 2026.010 §4.4); o antigo continua imprimindo 0,00.
+	TemICMS bool // ICMS00/10/20, as variantes com vBC/pICMS/vICMS lidas aqui
+	TemIPI  bool // IPITrib
+	VBCIPI  float64
 
 	// Reforma tributária (NT 2026.010 §4.3). TemIBSCBS/TemIS dizem se o
 	// grupo veio no XML; sem eles a linha do item sai como antes.
 	TemIBSCBS  bool
+	TemGIBSCBS bool // gIBSCBS informado (CST com tributação: bases, alíquotas e valores)
 	ClassTrib  string  // cClassTrib - UB14
 	VBCIBSCBS  float64 // vBC - UB16
 	AliqIBSUF  float64 // pIBSUF - UB18, ou pAliqEfet - UB28 com gRed
@@ -226,20 +249,26 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			PAliqEfet string `xml:"pAliqEfet"`
 		} `xml:"gRed"`
 	}
+	// orig precisa de tag: o encoding/xml diferencia maiúscula, e sem ela a
+	// origem da mercadoria nunca era lida.
+	type xmlICMSCod struct {
+		Orig            string `xml:"orig"`
+		CST, CSOSN, CEST string
+	}
 	type xmlImposto struct {
 		ICMS struct {
 			// CEST só existe de fato em variante sujeita a ST (10/30/60/70/90 e
 			// as SN equivalentes) -- decodificado em todas por simetria: tag
 			// ausente no XML só deixa o campo vazio, sem custo real.
 			ICMS00 *struct {
-				Orig  string
+				Orig  string `xml:"orig"`
 				CST   string
 				PICMS string `xml:"pICMS"`
 				VBC   string `xml:"vBC"`
 				VICMS string `xml:"vICMS"`
 			} `xml:"ICMS00"`
 			ICMS10 *struct {
-				Orig  string
+				Orig  string `xml:"orig"`
 				CST   string
 				CEST  string
 				PICMS string `xml:"pICMS"`
@@ -247,23 +276,24 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 				VICMS string `xml:"vICMS"`
 			} `xml:"ICMS10"`
 			ICMS20 *struct {
-				Orig  string
+				Orig  string `xml:"orig"`
 				CST   string
 				PICMS string `xml:"pICMS"`
 				VBC   string `xml:"vBC"`
 				VICMS string `xml:"vICMS"`
 			} `xml:"ICMS20"`
-			ICMS40    *struct{ Orig, CST string }         `xml:"ICMS40"`
-			ICMS60    *struct{ Orig, CST, CEST string }   `xml:"ICMS60"`
-			ICMS90    *struct{ Orig, CST, CEST string }   `xml:"ICMS90"`
-			ICMSSN101 *struct{ Orig, CSOSN string }       `xml:"ICMSSN101"`
-			ICMSSN102 *struct{ Orig, CSOSN string }       `xml:"ICMSSN102"`
-			ICMSSN201 *struct{ Orig, CSOSN, CEST string } `xml:"ICMSSN201"`
-			ICMSSN202 *struct{ Orig, CSOSN, CEST string } `xml:"ICMSSN202"`
-			ICMSSN500 *struct{ Orig, CSOSN string }       `xml:"ICMSSN500"`
-			ICMSSN900 *struct{ Orig, CSOSN, CEST string } `xml:"ICMSSN900"`
+			ICMS40    *xmlICMSCod `xml:"ICMS40"`
+			ICMS60    *xmlICMSCod `xml:"ICMS60"`
+			ICMS90    *xmlICMSCod `xml:"ICMS90"`
+			ICMSSN101 *xmlICMSCod `xml:"ICMSSN101"`
+			ICMSSN102 *xmlICMSCod `xml:"ICMSSN102"`
+			ICMSSN201 *xmlICMSCod `xml:"ICMSSN201"`
+			ICMSSN202 *xmlICMSCod `xml:"ICMSSN202"`
+			ICMSSN500 *xmlICMSCod `xml:"ICMSSN500"`
+			ICMSSN900 *xmlICMSCod `xml:"ICMSSN900"`
 		} `xml:"ICMS"`
 		IPI *struct {
+			VBC  string `xml:"IPITrib>vBC"`
 			PIPI string `xml:"IPITrib>pIPI"`
 			VIPI string `xml:"IPITrib>vIPI"`
 		} `xml:"IPI"`
@@ -299,7 +329,8 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			VDesc  string `xml:"vDesc"`
 			VProd  string `xml:"vProd"`
 		} `xml:"prod"`
-		Imposto xmlImposto `xml:"imposto"`
+		Imposto   xmlImposto `xml:"imposto"`
+		InfAdProd string     `xml:"infAdProd"`
 	}
 	type xmlTransp struct {
 		ModFrete   string `xml:"modFrete"`
@@ -390,6 +421,11 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 					VICMSUFRemet string `xml:"vICMSUFRemet"`
 					VFCPUFDest   string `xml:"vFCPUFDest"`
 					VICMSUFDest  string `xml:"vICMSUFDest"`
+					VFCPST         string `xml:"vFCPST"`
+					QBCMono        string `xml:"qBCMono"`
+					VICMSMono      string `xml:"vICMSMono"`
+					QBCMonoReten   string `xml:"qBCMonoReten"`
+					VICMSMonoReten string `xml:"vICMSMonoReten"`
 				} `xml:"ICMSTot"`
 				IBSCBSTot *struct {
 					VIBSUF  string `xml:"gIBS>gIBSUF>vIBSUF"`
@@ -455,6 +491,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 		DataAutorizacao: formatarDataHora(proc.ProtNFe.DhRecbto),
 		DhEmiCompleta:   formatarDataHoraSeg(inf.Ide.DhEmi),
 		DhRecbtoCompleta: formatarDataHoraSeg(proc.ProtNFe.DhRecbto),
+		LeiauteRTC:       usaLeiauteRTC(inf.Ide.DhEmi),
 		DataSaida:       formatarData(inf.Ide.DhSaiEnt),
 		HoraSaida:       formatarHora(inf.Ide.DhSaiEnt),
 		EmitNome:        inf.Emit.XNome,
@@ -499,6 +536,10 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 	d.VFCPUFDest = parseFloat(inf.Total.ICMSTot.VFCPUFDest)
 	d.VICMSUFDest = parseFloat(inf.Total.ICMSTot.VICMSUFDest)
 	d.VISTot = inf.Total.VIS
+	tot := inf.Total.ICMSTot
+	d.VFCPSTTot, d.VICMSUFDestTot, d.VFCPUFDestTot = tot.VFCPST, tot.VICMSUFDest, tot.VFCPUFDest
+	d.QBCMonoTot, d.VICMSMonoTot = tot.QBCMono, tot.VICMSMono
+	d.QBCMonoRetenTot, d.VICMSMonoRetenTot = tot.QBCMonoReten, tot.VICMSMonoReten
 	if t := inf.Total.IBSCBSTot; t != nil {
 		d.VCBSTot, d.VIBSUFTot, d.VIBSMunTot = t.VCBS, t.VIBSUF, t.VIBSMun
 		if m := t.GMono; m != nil {
@@ -566,22 +607,26 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			VUnit:   parseFloat(det.Prod.VUnCom),
 			VDesc:   parseFloat(det.Prod.VDesc),
 			VProd:   parseFloat(det.Prod.VProd),
+			InfAdProd: det.InfAdProd,
 		}
 		imp := det.Imposto
 		switch {
 		case imp.ICMS.ICMS00 != nil:
 			item.Orig, item.CST = imp.ICMS.ICMS00.Orig, imp.ICMS.ICMS00.CST
+			item.TemICMS = true
 			item.VBC = parseFloat(imp.ICMS.ICMS00.VBC)
 			item.ICMS = parseFloat(imp.ICMS.ICMS00.VICMS)
 			item.AliqICMS = parseFloat(imp.ICMS.ICMS00.PICMS)
 		case imp.ICMS.ICMS10 != nil:
 			item.Orig, item.CST = imp.ICMS.ICMS10.Orig, imp.ICMS.ICMS10.CST
+			item.TemICMS = true
 			item.CEST = imp.ICMS.ICMS10.CEST
 			item.VBC = parseFloat(imp.ICMS.ICMS10.VBC)
 			item.ICMS = parseFloat(imp.ICMS.ICMS10.VICMS)
 			item.AliqICMS = parseFloat(imp.ICMS.ICMS10.PICMS)
 		case imp.ICMS.ICMS20 != nil:
 			item.Orig, item.CST = imp.ICMS.ICMS20.Orig, imp.ICMS.ICMS20.CST
+			item.TemICMS = true
 			item.VBC = parseFloat(imp.ICMS.ICMS20.VBC)
 			item.ICMS = parseFloat(imp.ICMS.ICMS20.VICMS)
 			item.AliqICMS = parseFloat(imp.ICMS.ICMS20.PICMS)
@@ -612,6 +657,8 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 		if imp.IPI != nil {
 			item.IPI = parseFloat(imp.IPI.VIPI)
 			item.AliqIPI = parseFloat(imp.IPI.PIPI)
+			item.VBCIPI = parseFloat(imp.IPI.VBC)
+			item.TemIPI = imp.IPI.VIPI != ""
 		}
 		if imp.IS != nil {
 			item.TemIS = true
@@ -623,6 +670,7 @@ func ParseNFeXML(xmlBytes []byte) (*DadosDANFE, error) {
 			item.TemIBSCBS = true
 			item.ClassTrib = ib.ClassTrib
 			if g := ib.GIBSCBS; g != nil {
+				item.TemGIBSCBS = true
 				item.VBCIBSCBS = parseFloat(g.VBC)
 				item.AliqIBSUF = aliqRTC(g.GIBSUF.PIBSUF, g.GIBSUF.GRed)
 				item.VIBSUF = parseFloat(g.GIBSUF.VIBSUF)
@@ -649,6 +697,19 @@ func aliqRTC(vigente string, gRed *struct {
 		return parseFloat(gRed.PAliqEfet)
 	}
 	return parseFloat(vigente)
+}
+
+// inicioLeiauteRTC é a produção da NT 2026.010 (cronograma, pág. 3):
+// 01/12/2026, sem etapa de teste. O fuso é o de Brasília, como o das datas
+// de vigência das NTs.
+var inicioLeiauteRTC = time.Date(2026, 12, 1, 0, 0, 0, 0, time.FixedZone("-03", -3*3600))
+
+// usaLeiauteRTC decide o leiaute pela dhEmi (com o fuso do próprio XML).
+// dhEmi ilegível cai no leiaute vigente: é campo obrigatório no schema, e o
+// erro de errar para o novo é só visual.
+func usaLeiauteRTC(dhEmi string) bool {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(dhEmi))
+	return err != nil || !t.Before(inicioLeiauteRTC)
 }
 
 func parseFloat(s string) float64 {

@@ -1,6 +1,7 @@
 package sefaz_test
 
 import (
+	"cmp"
 	"context"
 	"crypto"
 	"crypto/rsa"
@@ -568,7 +569,7 @@ func TestEnviarLote_SemDeclaracaoXMLDuplicada(t *testing.T) {
 // mockSincronoTransport simula a resposta síncrona da SEFAZ (indSinc=1,
 // lote de 1 NF-e): cStat=104 com o protNFe já embutido em retEnviNFe,
 // sem nRec — não há lote assíncrono a consultar depois.
-type mockSincronoTransport struct{ chave string }
+type mockSincronoTransport struct{ chave, cStat string }
 
 func (m *mockSincronoTransport) RoundTrip(_ *http.Request) (*http.Response, error) {
 	body := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -578,14 +579,66 @@ func (m *mockSincronoTransport) RoundTrip(_ *http.Request) (*http.Response, erro
 		`<tpAmb>2</tpAmb><verAplic>SVRS</verAplic><cStat>104</cStat><xMotivo>Lote processado</xMotivo>`+
 		`<protNFe versao="4.00"><infProt>`+
 		`<tpAmb>2</tpAmb><chNFe>%s</chNFe><dhRecbto>2026-07-09T10:00:00-03:00</dhRecbto>`+
-		`<nProt>152260000000001</nProt><digVal>abc123</digVal><cStat>100</cStat><xMotivo>Autorizado o uso da NF-e</xMotivo>`+
+		`<nProt>152260000000001</nProt><digVal>abc123</digVal><cStat>%s</cStat><xMotivo>x</xMotivo>`+
 		`</infProt></protNFe>`+
-		`</retEnviNFe></nfeAutorizacaoLoteResult></soap12:Body></soap12:Envelope>`, m.chave)
+		`</retEnviNFe></nfeAutorizacaoLoteResult></soap12:Body></soap12:Envelope>`, m.chave, cmp.Or(m.cStat, "100"))
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Header:     make(http.Header),
 	}, nil
+}
+
+// mockAssincronoTransport responde o envio com cStat=103 (recibo) e a
+// consulta do recibo com o protNFe da chave, no cStat pedido.
+type mockAssincronoTransport struct{ chave, cStat string }
+
+func (m *mockAssincronoTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	req, _ := io.ReadAll(r.Body)
+	body := `<retEnviNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe"><tpAmb>2</tpAmb>` +
+		`<cStat>103</cStat><xMotivo>Lote recebido</xMotivo><infRec><nRec>521000000000001</nRec></infRec></retEnviNFe>`
+	if strings.Contains(string(req), "consReciNFe") {
+		body = fmt.Sprintf(`<retConsReciNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe"><tpAmb>2</tpAmb>`+
+			`<nRec>521000000000001</nRec><cStat>104</cStat><xMotivo>Lote processado</xMotivo>`+
+			`<protNFe versao="4.00"><infProt><tpAmb>2</tpAmb><chNFe>%s</chNFe><nProt>152260000000002</nProt>`+
+			`<cStat>%s</cStat><xMotivo>x</xMotivo></infProt></protNFe></retConsReciNFe>`, m.chave, m.cStat)
+	}
+	body = `<?xml version="1.0" encoding="UTF-8"?><soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">` +
+		`<soap12:Body><nfeResultMsg>` + body + `</nfeResultMsg></soap12:Body></soap12:Envelope>`
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+}
+
+// TestAutorizar_CStatAutorizaUso: 150 (autorização fora de prazo) é uso
+// autorizado como o 100, com nfeProc; denegada (110/301/302) e rejeição não
+// são. Cobre as duas saídas de Autorizar: envio síncrono (protNFe no
+// retEnviNFe) e consulta do recibo.
+func TestAutorizar_CStatAutorizaUso(t *testing.T) {
+	chave := strings.Repeat("5", 44)
+	nfeAssinada := []byte(`<NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe Id="NFe` + chave + `"></infNFe></NFe>`)
+	for cStat, quer := range map[string]bool{"100": true, "150": true, "110": false, "301": false, "302": false, "204": false} {
+		t.Run(cStat, func(t *testing.T) {
+			cl := sefaz.NovoClienteTransporte("52", sefaz.Homologacao, &mockSincronoTransport{chave: chave, cStat: cStat})
+			r, err := cl.Autorizar(context.Background(), nfeAssinada, chave)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.Autorizada != quer || (len(r.XMLProtocolado) > 0) != quer {
+				t.Errorf("síncrono cStat %s: Autorizada=%v nfeProc=%d bytes, quer %v", cStat, r.Autorizada, len(r.XMLProtocolado), quer)
+			}
+		})
+	}
+	// Consulta do recibo: espera os 2s do primeiro intervalo, então só os
+	// dois lados da fronteira.
+	for cStat, quer := range map[string]bool{"150": true, "301": false} {
+		cl := sefaz.NovoClienteTransporte("52", sefaz.Homologacao, &mockAssincronoTransport{chave: chave, cStat: cStat})
+		r, err := cl.Autorizar(context.Background(), nfeAssinada, chave)
+		if err != nil {
+			t.Fatalf("assíncrono cStat %s: %v", cStat, err)
+		}
+		if r.Autorizada != quer || r.Protocolo.CStat != cStat {
+			t.Errorf("assíncrono cStat %s: Autorizada=%v, quer %v", cStat, r.Autorizada, quer)
+		}
+	}
 }
 
 // TestAutorizar_Sincrono_ProtocoloEmbutido reproduz o bug em que Autorizar

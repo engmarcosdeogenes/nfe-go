@@ -147,33 +147,65 @@ func TestParseNFeXML_ISeMono(t *testing.T) {
 	}
 }
 
+var (
+	brt = time.FixedZone("BRT", -3*3600)
+	// Última e primeira dhEmi de cada lado do corte da NT 2026.010.
+	antesRTC  = time.Date(2026, 11, 30, 23, 59, 59, 0, brt)
+	depoisRTC = time.Date(2026, 12, 1, 0, 0, 0, 0, brt)
+)
+
+func emitidaEm(e builder.EntradaNFe, t time.Time) builder.EntradaNFe {
+	e.DhEmi = t
+	return e
+}
+
 // TestGerarDANFE_RTC confere no conteúdo do PDF o que a NT 2026.010 manda
-// desenhar, e o que ela proíbe inventar (§4.4).
+// desenhar, e o que ela proíbe inventar (§4.4). O leiaute sai da dhEmi.
 func TestGerarDANFE_RTC(t *testing.T) {
+	// Rótulos que só existem num dos dois leiautes.
+	antigo := []string{"CÁLCULO DO IMPOSTO", "B.CÁLC.ICMS"}
+	novo := []string{"TOTAL DOS PRODUTOS E TOTAL DA NOTA", "TOTAL DO ICMS / IPI", "TOTAL DO IBS / CBS / IS",
+		"BASES DE CÁLCULO", "VALOR DOS TRIBUTOS", "CÓDIGO DO REGIME TRIBUTÁRIO"}
 	casos := []struct {
 		nome        string
 		xml         []byte
 		tem, naoTem []string
 	}{
 		{
-			nome: "sem-ibscbs",
-			xml:  assinarEntrada(t, entradaRTC(2, false)),
-			// §4.1/§4.2: bloco e CRT sempre; campos em branco; item sem sublinha.
-			tem:    []string{"TOTAL DO IBS / CBS / IS", "3 - REGIME NORMAL"},
-			naoTem: []string{"cClassTrib", "MONOF"},
+			// Reimpressão de nota de novembro, mesmo com IBS/CBS no XML.
+			nome:   "antes-com-ibscbs",
+			xml:    assinarEntrada(t, emitidaEm(entradaRTC(2, true), antesRTC)),
+			tem:    antigo,
+			naoTem: append(novo, "cClassTrib"),
 		},
 		{
-			nome: "ibscbs-gred",
-			xml:  assinarEntrada(t, entradaRTC(2, true)),
-			tem: []string{"TOTAL DO IBS / CBS / IS", "cClassTrib 000001", "cClassTrib 200009",
-				"CBS 0,9000% = 9,00", "CBS 0,3600% = 3,60", "(12,60)"},
-			naoTem: []string{"MONOF", "BC IS"},
+			// CRT 1, sem grupo IBSCBS: o quadro do §4.1 sai, com os campos
+			// em branco (§4.4); nada de cClassTrib nem linha de monofásico.
+			nome:   "depois-simples-sem-ibscbs",
+			xml:    assinarEntrada(t, emitidaEm(entradaDANFETeste(), depoisRTC)),
+			tem:    append(novo, "1 - SIMPLES NACIONAL", "CST 0400", "IBS / CBS ", "IBS UF  / IPI "),
+			naoTem: append(antigo, "cClassTrib", "MONOF", "VALOR DO FCP"),
 		},
 		{
-			nome:   "is-mono",
-			xml:    comISeMono(t, assinarEntrada(t, entradaRTC(1, true))),
-			tem:    []string{"BC IS 1.000,00   IS 2,0000% = 20,00", "(20,00)", "MONOF", "(2,50)"},
-			naoTem: nil,
+			nome: "depois-com-ibscbs",
+			xml:  assinarEntrada(t, emitidaEm(entradaRTC(1, true), depoisRTC)),
+			tem: append(novo, "3 - REGIME NORMAL", "cClassTrib 000001", "IBS / CBS 1.000,00",
+				"ICMS 12,00% / CBS 0,90%", "IBS UF 0,10% / IPI ", "IBS MUN 0,05% / IS ",
+				"ICMS 120,00 / CBS 9,00", "(9,00)"),
+			naoTem: append(antigo, "MONOF"),
+		},
+		{
+			// Item 2 com gRed de 60%: §4.3 manda a alíquota efetiva.
+			nome: "depois-gred",
+			xml:  assinarEntrada(t, emitidaEm(entradaRTC(2, true), depoisRTC)),
+			tem: []string{"cClassTrib 200009", "ICMS 12,00% / CBS 0,36%", "IBS UF 0,04% / IPI ",
+				"IBS MUN 0,02% / IS ", "CBS 3,60", "(12,60)"},
+		},
+		{
+			nome: "depois-is-mono",
+			xml:  comISeMono(t, assinarEntrada(t, emitidaEm(entradaRTC(1, true), depoisRTC))),
+			tem: []string{"IS 1.000,00", "IBS MUN 0,05% / IS 2,00%", "/ IS 20,00", "(20,00)",
+				"VALOR DO IBS MONOF", "(3,00)", "(2,50)"},
 		},
 	}
 	for _, c := range casos {
@@ -184,12 +216,12 @@ func TestGerarDANFE_RTC(t *testing.T) {
 			}
 			conteudo := decodificarStreamsPDF(t, pdf)
 			for _, s := range c.tem {
-				if !bytes.Contains(conteudo, []byte(s)) {
+				if !bytes.Contains(conteudo, pdfTexto(s)) {
 					t.Errorf("PDF sem %q", s)
 				}
 			}
 			for _, s := range c.naoTem {
-				if bytes.Contains(conteudo, []byte(s)) {
+				if bytes.Contains(conteudo, pdfTexto(s)) {
 					t.Errorf("PDF não deveria ter %q", s)
 				}
 			}
@@ -198,31 +230,62 @@ func TestGerarDANFE_RTC(t *testing.T) {
 	}
 }
 
-// TestGerarDANFE_RTC_QuebraPagina: a sublinha de IBS/CBS conta na quebra de
-// página — nenhum item some e toda folha repete o cabeçalho (§3.5 do Anexo
-// II), agora com o CRT.
+// pdfTexto passa o texto para cp1252, que é como o fpdf grava as fontes core.
+func pdfTexto(s string) []byte {
+	var b []byte
+	for _, r := range s {
+		switch r {
+		case 'Á':
+			b = append(b, 0xC1)
+		case 'Ó':
+			b = append(b, 0xD3)
+		case 'Í':
+			b = append(b, 0xCD)
+		default:
+			b = append(b, string(r)...)
+		}
+	}
+	return b
+}
+
+// TestGerarDANFE_RTC_QuebraPagina: com 80 itens o leiaute novo quebra
+// página sem perder item, e toda folha repete o cabeçalho com o CRT (§3.5
+// do Anexo II, que a NT não muda).
 func TestGerarDANFE_RTC_QuebraPagina(t *testing.T) {
 	const n = 80
-	pdf, err := danfe.Gerar(assinarEntrada(t, entradaRTC(n, true)), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	semRTC, err := danfe.Gerar(assinarEntrada(t, entradaRTC(n, false)), false)
+	pdf, err := danfe.Gerar(assinarEntrada(t, emitidaEm(entradaRTC(n, true), depoisRTC)), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	paginas := contarPaginas(pdf)
-	if paginas <= contarPaginas(semRTC) {
-		t.Errorf("com sublinha RTC: %d folhas, sem: %d — a sublinha não está ocupando altura", paginas, contarPaginas(semRTC))
+	if paginas < 2 {
+		t.Fatalf("80 itens em %d folha", paginas)
 	}
 	conteudo := decodificarStreamsPDF(t, pdf)
-	if got := bytes.Count(conteudo, []byte("cClassTrib ")); got != n {
-		t.Errorf("%d sublinhas de IBS/CBS, esperado %d", got, n)
+	for _, c := range []struct {
+		s    string
+		quer int
+	}{
+		{"NCM 72162100", n},
+		{"cClassTrib 000001", n / 2},
+		{"cClassTrib 200009", n / 2},
+		{"REGIME NORMAL", paginas},
+		{"CHAVE DE ACESSO", paginas},
+		{"VALOR DOS TRIBUTOS", paginas},
+	} {
+		if got := bytes.Count(conteudo, []byte(c.s)); got != c.quer {
+			t.Errorf("%q aparece %d vezes, esperado %d (%d folhas)", c.s, got, c.quer, paginas)
+		}
 	}
-	if got := bytes.Count(conteudo, []byte("REGIME NORMAL")); got != paginas {
-		t.Errorf("CRT em %d de %d folhas", got, paginas)
-	}
+	t.Logf("80 itens: %d folhas", paginas)
 	salvarProva(t, "danfe-rtc-80-itens.pdf", pdf)
+
+	antes, err := danfe.Gerar(assinarEntrada(t, emitidaEm(entradaRTC(n, true), antesRTC)), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("80 itens no leiaute antigo: %d folhas", contarPaginas(antes))
+	salvarProva(t, "danfe-antigo-80-itens.pdf", antes)
 }
 
 // salvarProva grava o PDF em DANFE_SALVAR_DIR, quando definido — é como os

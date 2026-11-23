@@ -12,6 +12,7 @@ import (
 	"image"
 	_ "image/jpeg"
 	"image/png"
+	"strconv"
 	"strings"
 	"time"
 
@@ -246,11 +247,24 @@ func formatarOpcional(s string) string {
 	return formatarMoeda(parseFloat(s))
 }
 
-// formatarAliqRTC usa 4 casas: pIBSUF/pIBSMun/pCBS/pAliqEfet têm 4 decimais
-// no schema, e com gRed a alíquota efetiva da transição (ex: 0,05% x 70%)
-// não cabe em 2.
-func formatarAliqRTC(v float64) string {
-	return strings.Replace(fmt.Sprintf("%.4f", v), ".", ",", 1)
+// formatarQtdOpcional é o formatarOpcional das quantidades (qBCMono...).
+func formatarQtdOpcional(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	return formatarQtd(parseFloat(s))
+}
+
+// formatarPct imprime alíquota com vírgula e 2 casas, como o modelo da NT
+// 2026.010 ("0,00%"), mas sem perder a 3ª e a 4ª casa quando existem:
+// pIBSUF/pCBS/pAliqEfet têm 4 decimais no schema, e com gRed a alíquota
+// efetiva da transição (ex: 0,05% x 40% = 0,02%) pode precisar delas.
+func formatarPct(v float64) string {
+	s := strconv.FormatFloat(v, 'f', 4, 64)
+	for strings.HasSuffix(s, "0") && len(s)-strings.IndexByte(s, '.') > 3 {
+		s = s[:len(s)-1]
+	}
+	return strings.Replace(s, ".", ",", 1)
 }
 
 func splitDecimal(s string) [2]string {

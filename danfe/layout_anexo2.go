@@ -70,15 +70,39 @@ var (
 	larguraAdic      = []float64{129.5, 76.2}                        // informações complementares | reservado ao fisco
 )
 
-// Campos da NT 2026.010 (DANFE da reforma tributária). A NT não traz tabela
-// de coordenadas como o Anexo II; as larguras são as do modelo retrato da
-// página 8, medidas no PDF e escaladas para larguraUtil. Cada linha soma
-// larguraUtil.
+// Leiaute da NT 2026.010 (DANFE da reforma tributária), usado nas notas com
+// dhEmi a partir de 01/12/2026. A NT não traz tabela de coordenadas como o
+// Anexo II: as larguras são as do modelo retrato da pág. 8, lidas dos
+// retângulos vetoriais do PDF oficial (o modelo tem 19,50cm de corpo) e
+// escaladas para larguraUtil. Cada linha soma larguraUtil. As alturas e os
+// pisos de fonte continuam os do Anexo II (§3.7), que a NT não altera — o
+// modelo desenha os itens em 5pt, abaixo do piso de 6pt do §3.7.7.
 var (
-	larguraEmitCRT = []float64{102.9, 102.8}           // §4.2: CRT | tipo de regime de apuração do IBS/CBS
-	larguraRTCL1   = []float64{55.1, 51.1, 51.1, 48.4} // §4.1: CBS | IBS UF | IBS município | IS
-	larguraRTCMono = []float64{51.6, 35.8, 67.8, 50.5} // §4.1/§4.4: IBS mono | CBS mono | IBS mono retenção | CBS mono retenção
+	larguraEmitCRT   = []float64{100.4, 105.3}                 // §4.2: CRT | tipo de regime de apuração do IBS/CBS
+	larguraTotProd   = []float64{46.0, 40.6, 40.9, 37.4, 40.8} // total produtos | frete | seguro | desconto | outras despesas
+	larguraTotICMS   = []float64{46.0, 40.6, 40.5, 37.9, 40.7} // BC ICMS | ICMS | BC ST | ICMS ST | IPI
+	larguraTotICMSFc = []float64{51.3, 45.9, 51.5, 57.0}       // §4.4: FCP | FCP ST | DIFAL dest. | FCP dest. — e a linha do monofásico
+	larguraRTCL1     = []float64{55.4, 50.1, 51.4, 48.8}       // §4.1: CBS | IBS UF | IBS município | IS
+	larguraRTCMono   = []float64{51.3, 35.6, 67.2, 51.6}       // §4.1/§4.4: IBS mono | CBS mono | IBS mono retenção | CBS mono retenção
 )
+
+// colunasItensRTC: as oito colunas do modelo da pág. 8, na ordem dele. Não
+// há coluna de código nem de NCM: o NCM e o cClassTrib vão na última linha
+// da descrição, como no modelo.
+var colunasItensRTC = []struct {
+	label string
+	w     float64
+	align string
+}{
+	{"DESCRIÇÃO DO PRODUTO / SERVIÇO", 43.6, "L"},
+	{"CST / CFOP", 12.8, "L"},
+	{"QTD / UN", 15.5, "C"},
+	{"VLR UNIT", 18.0, "R"},
+	{"VLR TOTAL", 17.9, "R"},
+	{"BASES DE CÁLCULO", 28.4, "L"},
+	{"ALÍQUOTAS", 28.3, "L"},
+	{"VALOR DOS TRIBUTOS", 41.2, "L"},
+}
 
 // Colunas do quadro "Dados dos Produtos/Serviços". A ordem é a do item 3.8.1
 // (Obs 4: "Colunas apresentadas na ordem descrita"). O item 3.1.7 lista as
