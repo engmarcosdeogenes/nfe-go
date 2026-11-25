@@ -32,6 +32,7 @@ func (cl *Cliente) CancelarPorSubstituicao(ctx context.Context, chave, nProt, ju
 	if len(chaveSubstituta) != 44 || chaveSubstituta == chave || chaveSubstituta[20:22] != "65" {
 		return nil, fmt.Errorf("sefaz: chave da NFC-e substituta inválida")
 	}
+	justificativa = NormalizarTexto(justificativa)
 	if n := len([]rune(justificativa)); n < 15 || n > 255 {
 		return nil, fmt.Errorf("sefaz: justificativa deve ter entre 15 e 255 caracteres (tem %d)", n)
 	}

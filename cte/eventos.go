@@ -9,6 +9,7 @@ import (
 
 	"github.com/engmarcosdeogenes/nfe-go/builder"
 	"github.com/engmarcosdeogenes/nfe-go/cert"
+	"github.com/engmarcosdeogenes/nfe-go/sefaz"
 	"github.com/engmarcosdeogenes/nfe-go/sign"
 )
 
@@ -40,7 +41,7 @@ func (cl *Cliente) Cancelar(ctx context.Context, c *cert.Certificado, chave, nPr
 	if err := validarNProt(nProt); err != nil {
 		return nil, err
 	}
-	xJust = strings.TrimSpace(xJust)
+	xJust = sefaz.NormalizarTexto(xJust)
 	if n := utf8.RuneCountInString(xJust); n < 15 || n > 255 {
 		return nil, fmt.Errorf("cte: xJust deve ter 15 a 255 caracteres (tem %d)", n)
 	}
@@ -59,6 +60,7 @@ func (cl *Cliente) CartaCorrecao(ctx context.Context, c *cert.Certificado, chave
 	var b strings.Builder
 	b.WriteString(`<evCCeCTe><descEvento>Carta de Correcao</descEvento>`)
 	for i, k := range correcoes {
+		k.Grupo, k.Campo, k.Valor = sefaz.NormalizarTexto(k.Grupo), sefaz.NormalizarTexto(k.Campo), sefaz.NormalizarTexto(k.Valor)
 		if n := utf8.RuneCountInString(k.Grupo); n < 1 || n > 20 {
 			return nil, fmt.Errorf("cte: correção %d: grupoAlterado deve ter 1 a 20 caracteres", i+1)
 		}
@@ -124,7 +126,7 @@ func (cl *Cliente) EPEC(ctx context.Context, c *cert.Certificado, chave string, 
 	if d.DhEmi.IsZero() {
 		return nil, fmt.Errorf("cte: DhEmi obrigatório")
 	}
-	det := `<evEPECCTe><descEvento>EPEC</descEvento><xJust>` + sfEscapar(d.XJust) + `</xJust><vICMS>` + dec2(d.VICMS) + `</vICMS>`
+	det := `<evEPECCTe><descEvento>EPEC</descEvento><xJust>` + sfEscapar(sefaz.NormalizarTexto(d.XJust)) + `</xJust><vICMS>` + dec2(d.VICMS) + `</vICMS>`
 	if d.VICMSST > 0 {
 		det += `<vICMSST>` + dec2(d.VICMSST) + `</vICMSST>`
 	}
@@ -143,7 +145,7 @@ func dec2(v float64) string { return fmt.Sprintf("%.2f", v) }
 // PrestacaoDesacordo registra a prestação de serviço em desacordo (610110). O autor é o
 // tomador: CNPJ do certificado (não o da chave). xObs 15 a 255 caracteres.
 func (cl *Cliente) PrestacaoDesacordo(ctx context.Context, c *cert.Certificado, chave, obs string) (*RetornoEvento, error) {
-	obs = strings.TrimSpace(obs)
+	obs = sefaz.NormalizarTexto(obs)
 	if n := utf8.RuneCountInString(obs); n < 15 || n > 255 {
 		return nil, fmt.Errorf("cte: xObs deve ter 15 a 255 caracteres (tem %d)", n)
 	}

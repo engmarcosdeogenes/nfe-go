@@ -9,6 +9,7 @@ import (
 
 	"github.com/engmarcosdeogenes/nfe-go/builder"
 	"github.com/engmarcosdeogenes/nfe-go/cert"
+	"github.com/engmarcosdeogenes/nfe-go/sefaz"
 	"github.com/engmarcosdeogenes/nfe-go/sign"
 )
 
@@ -52,7 +53,7 @@ func (cl *Cliente) Cancelar(ctx context.Context, c *cert.Certificado, chave, nPr
 	if !soDigitos(nProt, 15) {
 		return nil, fmt.Errorf("mdfe: nProt deve ter 15 dígitos")
 	}
-	xJust = strings.TrimSpace(xJust)
+	xJust = sefaz.NormalizarTexto(xJust)
 	if n := utf8.RuneCountInString(xJust); n < 15 || n > 255 {
 		return nil, fmt.Errorf("mdfe: xJust deve ter 15 a 255 caracteres (tem %d)", n)
 	}
@@ -62,7 +63,7 @@ func (cl *Cliente) Cancelar(ctx context.Context, c *cert.Certificado, chave, nPr
 
 // IncluirCondutor registra a inclusão de condutor (110114); nSeq 1..999.
 func (cl *Cliente) IncluirCondutor(ctx context.Context, c *cert.Certificado, chave, nome, cpf string, nSeq int) (*RetornoEvento, error) {
-	nome = strings.TrimSpace(nome)
+	nome = sefaz.NormalizarTexto(nome)
 	if n := utf8.RuneCountInString(nome); n < 2 || n > 60 {
 		return nil, fmt.Errorf("mdfe: nome do condutor deve ter 2 a 60 caracteres")
 	}

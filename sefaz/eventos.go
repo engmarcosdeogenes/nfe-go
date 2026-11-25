@@ -138,8 +138,9 @@ type RetornoCancelamento struct {
 // nProt: número do protocolo de autorização.
 // justificativa: texto de 15-255 caracteres.
 func (cl *Cliente) Cancelar(ctx context.Context, chave, nProt, justificativa string, c *cert.Certificado) (*RetornoCancelamento, error) {
-	if len(justificativa) < 15 || len(justificativa) > 255 {
-		return nil, fmt.Errorf("sefaz: justificativa deve ter entre 15 e 255 caracteres (tem %d)", len(justificativa))
+	justificativa = NormalizarTexto(justificativa)
+	if n := tamanhoTexto(justificativa); n < 15 || n > 255 {
+		return nil, fmt.Errorf("sefaz: justificativa deve ter entre 15 e 255 caracteres (tem %d)", n)
 	}
 
 	dhEvento := agoraBrasilia()
@@ -165,7 +166,7 @@ func (cl *Cliente) Cancelar(ctx context.Context, chave, nProt, justificativa str
 			`</infEvento>`+
 			`</evento>`,
 		idEvento, cl.cuf, string(cl.amb), cnpjAutorEvento(chave, c),
-		chave, dhEvento, nProt, justificativa,
+		chave, dhEvento, nProt, escaparXML(justificativa),
 	)
 
 	eventoAssinado, err := sign.AssinarEvento([]byte(xmlEvento), c)
@@ -253,21 +254,29 @@ type RetornoCartaCorrecao struct {
 // xCondUso: condição de uso — usar XCondUsoCartaCorrecao.
 // nSeqEvento: sequencial da CC-e para esta NF-e (1-20).
 func CartaCorrecao(c *cert.Certificado, chNFe, xCorrecao, xCondUso string, nSeqEvento int, amb Ambiente) (*RetornoCartaCorrecao, error) {
-	if len(xCorrecao) < 15 {
-		return nil, fmt.Errorf("sefaz: xCorrecao deve ter no mínimo 15 caracteres (tem %d)", len(xCorrecao))
+	if len(chNFe) != 44 {
+		return nil, fmt.Errorf("sefaz: chNFe deve ter 44 dígitos (tem %d)", len(chNFe))
 	}
-	if len(xCorrecao) > 1000 {
-		return nil, fmt.Errorf("sefaz: xCorrecao deve ter no máximo 1000 caracteres (tem %d)", len(xCorrecao))
+	cl, clErr := NovoCliente(chNFe[:2], amb, c)
+	if clErr != nil {
+		return nil, fmt.Errorf("sefaz: CartaCorrecao: criar cliente: %w", clErr)
+	}
+	return cl.CartaCorrecao(context.Background(), c, chNFe, xCorrecao, xCondUso, nSeqEvento)
+}
+
+// CartaCorrecao é a CC-e pelo Cliente (UF do cliente = cOrgao). xCorrecao passa
+// por NormalizarTexto antes da conferência de tamanho; o texto que vale é o normalizado.
+func (cl *Cliente) CartaCorrecao(ctx context.Context, c *cert.Certificado, chNFe, xCorrecao, xCondUso string, nSeqEvento int) (*RetornoCartaCorrecao, error) {
+	xCorrecao = NormalizarTexto(xCorrecao)
+	if n := tamanhoTexto(xCorrecao); n < 15 {
+		return nil, fmt.Errorf("sefaz: xCorrecao deve ter no mínimo 15 caracteres (tem %d)", n)
+	} else if n > 1000 {
+		return nil, fmt.Errorf("sefaz: xCorrecao deve ter no máximo 1000 caracteres (tem %d)", n)
 	}
 	if len(chNFe) != 44 {
 		return nil, fmt.Errorf("sefaz: chNFe deve ter 44 dígitos (tem %d)", len(chNFe))
 	}
-
-	cuf := chNFe[:2]
-	cl, clErr := NovoCliente(cuf, amb, c)
-	if clErr != nil {
-		return nil, fmt.Errorf("sefaz: CartaCorrecao: criar cliente: %w", clErr)
-	}
+	cuf, amb := cl.cuf, cl.amb
 
 	dhEvento := agoraBrasilia()
 	idEvento := fmt.Sprintf("ID110110%s%02d", chNFe, nSeqEvento)
@@ -291,7 +300,7 @@ func CartaCorrecao(c *cert.Certificado, chNFe, xCorrecao, xCondUso string, nSeqE
 			`</infEvento>`+
 			`</evento>`,
 		idEvento, cuf, string(amb), cnpjAutorEvento(chNFe, c),
-		chNFe, dhEvento, nSeqEvento, xCorrecao, xCondUso,
+		chNFe, dhEvento, nSeqEvento, escaparXML(xCorrecao), escaparXML(NormalizarTexto(xCondUso)),
 	)
 
 	eventoAssinado, err := sign.AssinarEvento([]byte(xmlEvento), c)
@@ -299,7 +308,6 @@ func CartaCorrecao(c *cert.Certificado, chNFe, xCorrecao, xCondUso string, nSeqE
 		return nil, fmt.Errorf("sefaz: assinar CC-e: %w", err)
 	}
 
-	ctx := context.Background()
 	soapBody := fmt.Sprintf(
 		`<nfeRecepcaoEvento xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4">`+
 			`<nfeDadosMsg>`+
@@ -394,8 +402,9 @@ func (cl *Cliente) Manifestar(ctx context.Context, cnpj, chave, tipo, justificat
 	if !ok {
 		return nil, fmt.Errorf("sefaz: tipo de manifestação inválido: %q (use ciencia|confirmacao|desconhecimento|nao_realizada)", tipo)
 	}
-	if cfg.ExigeJust && (len(justificativa) < 15 || len(justificativa) > 255) {
-		return nil, fmt.Errorf("sefaz: justificativa deve ter entre 15 e 255 caracteres para nao_realizada (tem %d)", len(justificativa))
+	justificativa = NormalizarTexto(justificativa)
+	if n := tamanhoTexto(justificativa); cfg.ExigeJust && (n < 15 || n > 255) {
+		return nil, fmt.Errorf("sefaz: justificativa deve ter entre 15 e 255 caracteres para nao_realizada (tem %d)", n)
 	}
 
 	dhEvento := agoraBrasilia()
@@ -403,7 +412,7 @@ func (cl *Cliente) Manifestar(ctx context.Context, cnpj, chave, tipo, justificat
 
 	detEvento := fmt.Sprintf(`<detEvento versao="1.00"><descEvento>%s</descEvento>`, cfg.Desc)
 	if cfg.ExigeJust {
-		detEvento += fmt.Sprintf(`<xJust>%s</xJust>`, justificativa)
+		detEvento += fmt.Sprintf(`<xJust>%s</xJust>`, escaparXML(justificativa))
 	}
 	detEvento += `</detEvento>`
 
@@ -504,8 +513,9 @@ type ResultadoInutilizacao struct {
 // Compartilhado por Inutilizar (que computa ano do relógio) e InutilizarLote.
 // modelo: "55" (NF-e) ou "65" (NFC-e) — entra tanto no Id quanto no <mod>.
 func (cl *Cliente) inutilizarFaixa(ctx context.Context, c *cert.Certificado, cnpj, ano, modelo, serie, nNFIni, nNFFin, justificativa string) (*RetornoInutilizacao, error) {
-	if len(justificativa) < 15 || len(justificativa) > 255 {
-		return nil, fmt.Errorf("sefaz: justificativa deve ter entre 15 e 255 caracteres (tem %d)", len(justificativa))
+	justificativa = NormalizarTexto(justificativa)
+	if n := tamanhoTexto(justificativa); n < 15 || n > 255 {
+		return nil, fmt.Errorf("sefaz: justificativa deve ter entre 15 e 255 caracteres (tem %d)", n)
 	}
 
 	idInut := idInutilizacao(cl.cuf, ano, cnpj, modelo, serie, nNFIni, nNFFin)
@@ -526,7 +536,7 @@ func (cl *Cliente) inutilizarFaixa(ctx context.Context, c *cert.Certificado, cnp
 			`</infInut>`+
 			`</inutNFe>`,
 		idInut, string(cl.amb), cl.cuf, ano, cnpj, modelo,
-		serie, nNFIni, nNFFin, justificativa,
+		serie, nNFIni, nNFFin, escaparXML(justificativa),
 	)
 
 	inutAssinado, err := sign.AssinarInutilizacao([]byte(xmlInut), c)

@@ -30,7 +30,7 @@ func TestXSD_SefazEventos(t *testing.T) {
 	cl, v := srvSF(t, "GO", 200, fixtureSF(t, "ret_evento.xml"))
 	cl.agora = func() time.Time { return time.Date(2026, 10, 26, 14, 0, 0, 0, time.UTC) }
 	ctx := context.Background()
-	just := "Cancelamento por erro de digitacao"
+	just := "Cancelamento por erro\r\nde digitacao & “teste” \t"
 	casos := []struct {
 		nome, xsd, tp, autor string
 		f                    func() (*RetornoEvento, error)
@@ -41,7 +41,7 @@ func TestXSD_SefazEventos(t *testing.T) {
 		{"cce", "evCCeCTe_v4.00.xsd", "110110", "11222333000181", func() (*RetornoEvento, error) {
 			return cl.CartaCorrecao(ctx, c, chaveSF, []Correcao{
 				{Grupo: "toma3", Campo: "toma", Valor: "3"},
-				{Grupo: "infCarga", Campo: "xOutCat", Valor: "A & B <x>", NroItem: "2"},
+				{Grupo: "infCarga", Campo: "xOutCat", Valor: "A & B <x>\n“y” ", NroItem: "2"},
 			}, 3)
 		}},
 		{"epec", "evEPECCTe_v4.00.xsd", "110113", "11222333000181", func() (*RetornoEvento, error) {
