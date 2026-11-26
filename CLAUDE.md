@@ -43,7 +43,11 @@ danfe.Gerar(xmlAutorizado)               → pdf
 - `EntradaNFe` (builder) é a única API que o caller preenche. Não expor
   structs de schema SEFAZ pra fora do pacote.
 - Reforma tributária (IBS/CBS/IS) já está no builder — ver testes
-  `TestCRT3_IBSCBS*` em `builder/builder_test.go`.
+  `TestCRT3_IBSCBS*` em `builder/builder_test.go`. A vBC do IBS/CBS segue a
+  regra UB16-10 (LC 214/2025 art. 12): soma frete/seguro/outras e tira
+  desconto, ICMS, PIS, COFINS e DIFAL do item; os valores saem em inteiro
+  com HALF_EVEN, como na Calculadora RTC (`builder/ibscbs_base_test.go`).
+  Não voltar a usar float/`math.Round` nesse cálculo.
 
 ## Escopo: mercadoria, não serviço
 

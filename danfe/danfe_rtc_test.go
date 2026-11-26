@@ -96,7 +96,8 @@ func TestParseNFeXML_IBSCBS(t *testing.T) {
 	if d.EmitCRT != "3" {
 		t.Errorf("CRT = %q", d.EmitCRT)
 	}
-	if d.VCBSTot != "12.60" || d.VIBSUFTot == "" || d.VIBSMunTot == "" {
+	// vBC = 1000 - ICMS 120 - PIS 6,50 - COFINS 30 = 843,50 (LC 214/2025 art. 12 §2º V); CBS 7,59 + 3,04.
+	if d.VCBSTot != "10.63" || d.VIBSUFTot == "" || d.VIBSMunTot == "" {
 		t.Errorf("totais IBS/CBS: CBS=%q UF=%q Mun=%q", d.VCBSTot, d.VIBSUFTot, d.VIBSMunTot)
 	}
 	if d.VISTot != "" || d.TemMono {
@@ -105,10 +106,10 @@ func TestParseNFeXML_IBSCBS(t *testing.T) {
 
 	// Item 1: sem gRed, alíquota vigente (pIBSUF/pIBSMun/pCBS).
 	it := d.Itens[0]
-	if !it.TemIBSCBS || it.ClassTrib != "000001" || it.VBCIBSCBS != 1000 {
+	if !it.TemIBSCBS || it.ClassTrib != "000001" || it.VBCIBSCBS != 843.5 {
 		t.Errorf("item 1: %+v", it)
 	}
-	if it.AliqIBSUF != 0.1 || it.AliqIBSMun != 0.05 || it.AliqCBS != 0.9 || it.VCBS != 9 {
+	if it.AliqIBSUF != 0.1 || it.AliqIBSMun != 0.05 || it.AliqCBS != 0.9 || it.VCBS != 7.59 {
 		t.Errorf("item 1 alíquotas: UF=%v Mun=%v CBS=%v vCBS=%v", it.AliqIBSUF, it.AliqIBSMun, it.AliqCBS, it.VCBS)
 	}
 
@@ -189,9 +190,9 @@ func TestGerarDANFE_RTC(t *testing.T) {
 		{
 			nome: "depois-com-ibscbs",
 			xml:  assinarEntrada(t, emitidaEm(entradaRTC(1, true), depoisRTC)),
-			tem: append(novo, "3 - REGIME NORMAL", "cClassTrib 000001", "IBS / CBS 1.000,00",
+			tem: append(novo, "3 - REGIME NORMAL", "cClassTrib 000001", "IBS / CBS 843,50",
 				"ICMS 12,00% / CBS 0,90%", "IBS UF 0,10% / IPI ", "IBS MUN 0,05% / IS ",
-				"ICMS 120,00 / CBS 9,00", "(9,00)"),
+				"ICMS 120,00 / CBS 7,59", "(7,59)"),
 			naoTem: append(antigo, "MONOF"),
 		},
 		{
@@ -199,7 +200,7 @@ func TestGerarDANFE_RTC(t *testing.T) {
 			nome: "depois-gred",
 			xml:  assinarEntrada(t, emitidaEm(entradaRTC(2, true), depoisRTC)),
 			tem: []string{"ITEM-001 - PERFIL ESTRUTURAL", "cClassTrib 200009", "ICMS 12,00% / CBS 0,36%", "IBS UF 0,04% / IPI ",
-				"IBS MUN 0,02% / IS ", "CBS 3,60", "(12,60)"},
+				"IBS MUN 0,02% / IS ", "CBS 3,04", "(10,63)"},
 		},
 		{
 			nome: "depois-is-mono",

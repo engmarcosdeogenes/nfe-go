@@ -10,6 +10,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"math"
+	"math/bits"
 	"reflect"
 	"strconv"
 	"strings"
@@ -813,7 +814,7 @@ func montarDetalhes(e EntradaNFe) ([]Detalhe, ICMSTot, *IBSCBSTot, error) {
 		vProdTotal += vProd
 		vDescTotal += item.VDesconto
 
-		imp, totItem, err := montarImposto(item, e.Emitente.CRT)
+		imp, totItem, err := montarImposto(item, e.Emitente.CRT, rateioFrete[i], rateioSeg[i], rateioOutro[i])
 		if err != nil {
 			return nil, ICMSTot{}, nil, err
 		}
@@ -1032,7 +1033,7 @@ type totaisItem struct {
 	vICMSUFDest, vICMSUFRemet, vFCPUFDest  float64
 }
 
-func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
+func montarImposto(item EntradaItem, crt string, vFrete, vSeg, vOutro int64) (Imposto, totaisItem, error) {
 	imp := Imposto{}
 
 	icms := &ICMS{}
@@ -1305,35 +1306,63 @@ func montarImposto(item EntradaItem, crt string) (Imposto, totaisItem, error) {
 
 	if item.IBSCBS != nil {
 		ib := item.IBSCBS
-		vBCIBSCBS := vProd
+		// vBC do item (LC 214/2025 art. 12 §1º IV e VI, §2º III e V; NT
+		// 2025.002-RTC v1.53, regra UB16-10): vProd + vFrete + vSeg + vOutro
+		// - vDesc - vPIS - vCOFINS - vICMS - vICMSUFDest - vFCP -
+		// vFCPUFDest - vICMSMono, em centavos, exatamente como saem no XML.
+		// O builder não emite vFCP/vICMSMono/vII/vIS/vServ por item. Não
+		// subtrai vICMSST, vFCPST nem vICMSDeson (fora da lista da UB16-10).
+		// §2º V exclui ICMS/PIS/COFINS de 2026 a 2032 e esses tributos
+		// acabam nessa janela, então deduz o que a nota carrega, sem
+		// chave por ano.
+		if ib.AliqIBSUF < 0 || ib.AliqIBSMun < 0 || ib.AliqCBS < 0 || ib.PercentualReducao < 0 || ib.PercentualReducao > 100 {
+			return imp, tot, fmt.Errorf("IBSCBS: alíquota negativa ou redução fora de 0..100")
+		}
+		vBCc := centXML(vProd) + vFrete + vSeg + vOutro - centXML(item.VDesconto) -
+			centXML(tot.vPIS) - centXML(tot.vCOFINS) - centXML(tot.vICMS) -
+			centXML(tot.vICMSUFDest) - centXML(tot.vFCPUFDest)
+		if vBCc < 0 {
+			vBCc = 0 // vBC negativo é inválido no schema (TDec_1302)
+		}
+		vBCIBSCBS := float64(vBCc) / 100
 
-		// gRed: com redução, a alíquota efetiva (e o valor devido) sai
-		// menor que a nominal -- pIBSUF/pIBSMun/pCBS continuam mostrando a
-		// alíquota padrão, só o grupo gRed carrega o percentual reduzido e
-		// a alíquota efetiva (NT 2025.002-RTC, TRed).
-		fatorRed := 1 - ib.PercentualReducao/100
-		aliqEfetUF := ib.AliqIBSUF * fatorRed
-		aliqEfetMun := ib.AliqIBSMun * fatorRed
-		aliqEfetCBS := ib.AliqCBS * fatorRed
+		// Alíquotas em 1/10000 de ponto percentual, aritmética inteira.
+		// gRed: com redução, pAliqEfet = alíquota × (1 - pRedAliq/100)
+		// arredondada HALF_EVEN a 4 casas, e o valor sai DELA (NT v1.53
+		// p. 45). pIBSUF/pIBSMun/pCBS continuam mostrando a nominal.
+		red := int64(math.Round(ib.PercentualReducao * 10000))
+		aliq := func(a float64) (nominal, efet int64) {
+			nominal = int64(math.Round(a * 10000))
+			efet = nominal
+			if red > 0 {
+				efet = divHalfEven(uint64(nominal), uint64(1_000_000-red), 1_000_000)
+			}
+			return
+		}
+		nomUF, efUF := aliq(ib.AliqIBSUF)
+		nomMun, efMun := aliq(ib.AliqIBSMun)
+		nomCBS, efCBS := aliq(ib.AliqCBS)
 
 		// Cada valor do item é arredondado a centavos ANTES de entrar no
 		// total: a SEFAZ soma os valores impressos nos itens e compara com
 		// o W03. Somar o valor cru dá diferença de centavos entre o total e
 		// a soma dos itens (cStat=1080 "Total de IBS UF difere da soma dos
 		// itens"; NF-e 109 da ATUAR, 16 itens: itens 21,31 x total 21,29,
-		// 06/11/2026).
-		vIBSUF := arred2(vBCIBSCBS * aliqEfetUF / 100)
-		vIBSMun := arred2(vBCIBSCBS * aliqEfetMun / 100)
-		vIBS := arred2(vIBSUF + vIBSMun)
-		vCBS := arred2(vBCIBSCBS * aliqEfetCBS / 100)
+		// 06/11/2026). HALF_EVEN decimal: Calculadora RTC v1.7.2 / NBR 5891.
+		cUF := divHalfEven(uint64(vBCc), uint64(efUF), 1_000_000)
+		cMun := divHalfEven(uint64(vBCc), uint64(efMun), 1_000_000)
+		cCBS := divHalfEven(uint64(vBCc), uint64(efCBS), 1_000_000)
+		vIBSUF, vIBSMun := float64(cUF)/100, float64(cMun)/100
+		vIBS := float64(cUF+cMun) / 100
+		vCBS := float64(cCBS) / 100
 
-		gIBSUF := GIBSUF{PIBSUF: fmtVal(ib.AliqIBSUF), VIBSUF: fmtVal(vIBSUF)}
-		gIBSMun := GIBSMun{PIBSMun: fmtVal(ib.AliqIBSMun), VIBSMun: fmtVal(vIBSMun)}
-		gCBS := GCBS{PCBS: fmtVal(ib.AliqCBS), VCBS: fmtVal(vCBS)}
+		gIBSUF := GIBSUF{PIBSUF: fmtAliq(nomUF), VIBSUF: fmtVal(vIBSUF)}
+		gIBSMun := GIBSMun{PIBSMun: fmtAliq(nomMun), VIBSMun: fmtVal(vIBSMun)}
+		gCBS := GCBS{PCBS: fmtAliq(nomCBS), VCBS: fmtVal(vCBS)}
 		if ib.PercentualReducao > 0 {
-			gIBSUF.GRed = &GRed{PRedAliq: fmtVal(ib.PercentualReducao), PAliqEfet: fmtVal(aliqEfetUF)}
-			gIBSMun.GRed = &GRed{PRedAliq: fmtVal(ib.PercentualReducao), PAliqEfet: fmtVal(aliqEfetMun)}
-			gCBS.GRed = &GRed{PRedAliq: fmtVal(ib.PercentualReducao), PAliqEfet: fmtVal(aliqEfetCBS)}
+			gIBSUF.GRed = &GRed{PRedAliq: fmtAliq(red), PAliqEfet: fmtAliq(efUF)}
+			gIBSMun.GRed = &GRed{PRedAliq: fmtAliq(red), PAliqEfet: fmtAliq(efMun)}
+			gCBS.GRed = &GRed{PRedAliq: fmtAliq(red), PAliqEfet: fmtAliq(efCBS)}
 		}
 
 		imp.IBSCBS = &IBSCBS{
@@ -1390,6 +1419,34 @@ func calcularST(item EntradaItem, vProd, vICMSProprio float64) (stItem, error) {
 	st.vBC = vProd * (1 + mva/100) * (1 - e.PRedBCST/100)
 	st.vICMS = math.Max(st.vBC*e.AliqST/100-vICMSProprio, 0)
 	return st, nil
+}
+
+// divHalfEven devolve round_half_even(n*m/d) em inteiros (128 bits no
+// produto intermediário, sem estouro). Arredondamento ABNT NBR 5891.
+func divHalfEven(n, m, d uint64) int64 {
+	hi, lo := bits.Mul64(n, m)
+	q, r := bits.Div64(hi, lo, d)
+	if r2 := 2 * r; r2 > d || (r2 == d && q%2 == 1) {
+		q++
+	}
+	return int64(q)
+}
+
+// fmtAliq imprime alíquota em 1/10000 de % no formato 3v2-4: 4 casas com os
+// zeros finais aparados até o mínimo de 2 (0.1 -> "0.10", 0.035 -> "0.035").
+func fmtAliq(v int64) string {
+	s := fmt.Sprintf("%d.%04d", v/10000, v%10000)
+	for i := 0; i < 2 && strings.HasSuffix(s, "0"); i++ {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
+// centXML: centavos do valor como fmtVal o imprime no XML (a vBC tem de bater
+// com a soma dos campos impressos, regra UB16-10).
+func centXML(v float64) int64 {
+	c, _ := strconv.ParseInt(strings.Replace(fmtVal(v), ".", "", 1), 10, 64)
+	return c
 }
 
 func centavos(v float64) int64 { return int64(math.Round(v * 100)) }

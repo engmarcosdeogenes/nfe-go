@@ -58,8 +58,9 @@ func TestIBSCBSTot_SomaDosItensArredondados(t *testing.T) {
 	if got := cent(tot.GIBS.GIBSUF.VIBSUF); got != uf {
 		t.Errorf("total vIBSUF = %d centavos, soma dos itens = %d", got, uf)
 	}
-	if uf != 2132 {
-		t.Errorf("soma vIBSUF dos itens = %d, esperava 2132 (21,32: meio para cima, 1,125 -> 1,13)", uf)
+	// 1796: vBC agora deduz ICMS/PIS/COFINS (UB16-10) e arredonda HALF_EVEN; não é mais 2132 sobre vProd.
+	if uf != 1796 {
+		t.Errorf("soma vIBSUF dos itens = %d, esperava 1796", uf)
 	}
 	if got := cent(tot.GIBS.GIBSMun.VIBSMun); got != mun {
 		t.Errorf("total vIBSMun = %d, soma dos itens = %d", got, mun)

@@ -411,14 +411,15 @@ func TestCRT3_IBSCBS(t *testing.T) {
 	if ib.CST != "000" || ib.ClassTrib != "000001" {
 		t.Errorf("CST/cClassTrib = %q/%q", ib.CST, ib.ClassTrib)
 	}
-	if ib.GIBSCBS.VBC != "1000.00" {
-		t.Errorf("vBC = %q, esperava 1000.00", ib.GIBSCBS.VBC)
+	// vBC = 1000 - ICMS 120 - PIS 6,50 - COFINS 30 = 843,50 (LC 214/2025 art. 12 §2º V; NT UB16-10)
+	if ib.GIBSCBS.VBC != "843.50" {
+		t.Errorf("vBC = %q, esperava 843.50", ib.GIBSCBS.VBC)
 	}
-	if ib.GIBSCBS.VIBS != "1.00" {
-		t.Errorf("vIBS = %q, esperava 1.00 (0.5+0.5)", ib.GIBSCBS.VIBS)
+	if ib.GIBSCBS.VIBS != "0.84" {
+		t.Errorf("vIBS = %q, esperava 0.84 (0.42+0.42)", ib.GIBSCBS.VIBS)
 	}
-	if ib.GIBSCBS.GCBS.VCBS != "9.00" {
-		t.Errorf("vCBS = %q, esperava 9.00 (1000*0.9%%)", ib.GIBSCBS.GCBS.VCBS)
+	if ib.GIBSCBS.GCBS.VCBS != "7.59" {
+		t.Errorf("vCBS = %q, esperava 7.59 (843,50*0.9%%)", ib.GIBSCBS.GCBS.VCBS)
 	}
 
 	// Total da NF-e (Grupo W03) tem que refletir o somatório dos itens.
@@ -426,14 +427,14 @@ func TestCRT3_IBSCBS(t *testing.T) {
 		t.Fatal("esperava IBSCBSTot no total da NF-e")
 	}
 	tot := nfe.InfNFe.Total.IBSCBSTot
-	if tot.VBCIBSCBS != "1000.00" {
-		t.Errorf("total vBCIBSCBS = %q, esperava 1000.00", tot.VBCIBSCBS)
+	if tot.VBCIBSCBS != "843.50" {
+		t.Errorf("total vBCIBSCBS = %q, esperava 843.50", tot.VBCIBSCBS)
 	}
-	if tot.GIBS.VIBS != "1.00" {
-		t.Errorf("total vIBS = %q, esperava 1.00", tot.GIBS.VIBS)
+	if tot.GIBS.VIBS != "0.84" {
+		t.Errorf("total vIBS = %q, esperava 0.84", tot.GIBS.VIBS)
 	}
-	if tot.GCBS.VCBS != "9.00" {
-		t.Errorf("total vCBS = %q, esperava 9.00", tot.GCBS.VCBS)
+	if tot.GCBS.VCBS != "7.59" {
+		t.Errorf("total vCBS = %q, esperava 7.59", tot.GCBS.VCBS)
 	}
 }
 
@@ -483,16 +484,17 @@ func TestCRT3_IBSCBS_ComReducao(t *testing.T) {
 	if gUF.GRed.PRedAliq != "60.00" || gUF.GRed.PAliqEfet != "0.04" {
 		t.Errorf("gRed = %+v, esperava PRedAliq=60.00 PAliqEfet=0.04 (0.10*40%%)", gUF.GRed)
 	}
-	if gUF.VIBSUF != "0.40" {
-		t.Errorf("vIBSUF = %q, esperava 0.40 (1000*0.04%%, sobre a alíquota efetiva)", gUF.VIBSUF)
+	// vBC 843,50 (ICMS/PIS/COFINS deduzidos, UB16-10) x 0,04% = 0,3374 -> 0,34
+	if gUF.VIBSUF != "0.34" {
+		t.Errorf("vIBSUF = %q, esperava 0.34 (843,50*0.04%%, sobre a alíquota efetiva)", gUF.VIBSUF)
 	}
 
 	gCBS := ib.GIBSCBS.GCBS
 	if gCBS.GRed == nil || gCBS.GRed.PAliqEfet != "0.36" {
 		t.Errorf("gCBS.gRed = %+v, esperava PAliqEfet=0.36 (0.90*40%%)", gCBS.GRed)
 	}
-	if gCBS.VCBS != "3.60" {
-		t.Errorf("vCBS = %q, esperava 3.60 (1000*0.36%%)", gCBS.VCBS)
+	if gCBS.VCBS != "3.04" { // 843,50 x 0,36% = 3,0366
+		t.Errorf("vCBS = %q, esperava 3.04 (843,50*0.36%%)", gCBS.VCBS)
 	}
 
 	// pIBSMun = 0 nesse teste -- redução de 60% sobre zero continua zero,
